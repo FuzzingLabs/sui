@@ -77,6 +77,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<SerializedReturnValues> {
         let bypass_declared_entry_check = false;
+        let mut coverage: Vec<u16> = vec![];
         self.runtime.execute_function(
             module,
             function_name,
@@ -86,6 +87,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             gas_meter,
             &mut self.native_extensions,
             bypass_declared_entry_check,
+            &mut coverage
         )
     }
 
@@ -97,6 +99,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         ty_args: Vec<Type>,
         args: Vec<impl Borrow<[u8]>>,
         gas_meter: &mut impl GasMeter,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         let bypass_declared_entry_check = true;
         self.runtime.execute_function(
@@ -108,6 +111,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             gas_meter,
             &mut self.native_extensions,
             bypass_declared_entry_check,
+            coverage
         )
     }
 
@@ -134,6 +138,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         args: Vec<impl Borrow<[u8]>>,
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<SerializedReturnValues> {
+        let mut coverage: Vec<u16> = vec![];
         self.runtime.execute_script(
             script,
             ty_args,
@@ -141,6 +146,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             &mut self.data_cache,
             gas_meter,
             &mut self.native_extensions,
+            &mut coverage
         )
     }
 

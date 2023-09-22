@@ -6,7 +6,6 @@ use crate::native_extensions::NativeContextExtensions;
 use crate::{
     loader::{Function, Loader, Resolver},
     native_functions::NativeContext,
-    trace,
 };
 use fail::fail_point;
 use move_binary_format::{
@@ -111,6 +110,7 @@ impl Interpreter {
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         loader: &Loader,
+        coverage: &mut Vec<u16>
     ) -> VMResult<Vec<Value>> {
         let mut interpreter = Interpreter {
             operand_stack: Stack::new(),
@@ -172,7 +172,7 @@ impl Interpreter {
             Ok(return_values.into_iter().collect())
         } else {
             interpreter.execute_main(
-                loader, data_store, gas_meter, extensions, function, ty_args, args,
+                loader, data_store, gas_meter, extensions, function, ty_args, args, coverage
             )
         }
     }
@@ -192,6 +192,7 @@ impl Interpreter {
         function: Arc<Function>,
         ty_args: Vec<Type>,
         args: Vec<Value>,
+        coverage: &mut Vec<u16>
     ) -> VMResult<Vec<Value>> {
         let mut locals = Locals::new(function.local_count());
         for (i, value) in args.into_iter().enumerate() {
@@ -212,10 +213,18 @@ impl Interpreter {
             .map_err(|err| self.set_location(err))?;
         loop {
             let resolver = current_frame.resolver(link_context, loader);
-            let exit_code =
+            let result =
                 current_frame //self
                     .execute_code(&resolver, &mut self, data_store, gas_meter)
-                    .map_err(|err| self.maybe_core_dump(err, &current_frame))?;
+                    .map_err(|err| self.maybe_core_dump(err, &current_frame));
+
+            coverage.append(&mut current_frame.coverage);
+            let mut exit_code = ExitCode::Return;
+            match result {
+                Ok(code) => exit_code = code,
+                Err(err) => return Err(err)
+            };
+
             match exit_code {
                 ExitCode::Return => {
                     let non_ref_vals = current_frame
@@ -232,8 +241,10 @@ impl Interpreter {
                     if let Some(frame) = self.call_stack.pop() {
                         // Note: the caller will find the callee's return values at the top of the shared operand stack
                         current_frame = frame;
+                        coverage.append(&mut current_frame.coverage);
                         current_frame.pc += 1; // advance past the Call instruction in the caller
                     } else {
+                        coverage.append(&mut current_frame.coverage);
                         // end of execution. `self` should no longer be used afterward
                         return Ok(self.operand_stack.value);
                     }
@@ -293,6 +304,7 @@ impl Interpreter {
                     })?;
                     // Note: the caller will find the the callee's return values at the top of the shared operand stack
                     current_frame = frame;
+                    coverage.append(&mut current_frame.coverage);
                 }
                 ExitCode::CallGeneric(idx) => {
                     // TODO(Gas): We should charge gas as we do type substitution...
@@ -346,6 +358,7 @@ impl Interpreter {
                         self.maybe_core_dump(err, &frame)
                     })?;
                     current_frame = frame;
+                    coverage.append(&mut current_frame.coverage);
                 }
             }
         }
@@ -422,6 +435,7 @@ impl Interpreter {
             function,
             ty_args,
             local_tys,
+            coverage: vec![]
         })
     }
 
@@ -1120,6 +1134,7 @@ struct Frame {
     function: Arc<Function>,
     ty_args: Vec<Type>,
     local_tys: Vec<Type>,
+    coverage: Vec<u16>
 }
 
 /// An `ExitCode` from `execute_code_unit`.
@@ -2321,14 +2336,15 @@ impl Frame {
         let code = self.function.code();
         loop {
             for instruction in &code[self.pc as usize..] {
-                trace!(
-                    &self.function,
-                    &self.locals,
-                    self.pc,
-                    instruction,
-                    resolver,
-                    interpreter
-                );
+                // trace!(
+                //     &self.function,
+                //     &self.locals,
+                //     self.pc,
+                //     instruction,
+                //     resolver,
+                //     interpreter
+                // );
+                self.coverage.push(self.pc);
 
                 fail_point!("move_vm::interpreter_loop", |_| {
                     Err(
