@@ -1,16 +1,21 @@
 // Copyright (c) 2021, Facebook, Inc. and its affiliates
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+
 use crate::{
     certificate_fetcher::CertificateFetcher,
     certifier::Certifier,
+    consensus::{ConsensusRound, LeaderSchedule},
     metrics::{initialise_metrics, PrimaryMetrics},
     proposer::{OurDigestMessage, Proposer},
     state_handler::StateHandler,
     synchronizer::Synchronizer,
 };
 
-use anemo::{codegen::InboundRequestLayer, types::Address};
+use anemo::{
+    codegen::InboundRequestLayer,
+    types::{response::StatusCode, Address},
+};
 use anemo::{types::PeerInfo, Network, PeerId};
 use anemo_tower::auth::RequireAuthorizationLayer;
 use anemo_tower::set_header::SetResponseHeaderLayer;
@@ -22,12 +27,12 @@ use anemo_tower::{
     trace::{DefaultMakeSpan, DefaultOnFailure, TraceLayer},
 };
 use async_trait::async_trait;
-use config::{Authority, AuthorityIdentifier, Committee, Parameters, WorkerCache};
-use consensus::consensus::{ConsensusRound, LeaderSchedule};
-use crypto::traits::EncodeDecodeBase64;
+use config::{Authority, AuthorityIdentifier, ChainIdentifier, Committee, Parameters, WorkerCache};
+use crypto::{traits::EncodeDecodeBase64, RandomnessPrivateKey};
 use crypto::{KeyPair, NetworkKeyPair, NetworkPublicKey, Signature};
 use fastcrypto::{
     hash::Hash,
+    serde_helpers::ToFromByteArray,
     signature_service::SignatureService,
     traits::{KeyPair as _, ToFromBytes},
 };
@@ -59,19 +64,19 @@ use tracing::{debug, error, info, instrument, warn};
 use types::{
     ensure,
     error::{DagError, DagResult},
-    now, Certificate, CertificateAPI, CertificateDigest, FetchCertificatesRequest,
-    FetchCertificatesResponse, Header, HeaderAPI, MetadataAPI, PreSubscribedBroadcastSender,
-    PrimaryToPrimary, PrimaryToPrimaryServer, RequestVoteRequest, RequestVoteResponse, Round,
-    SendCertificateRequest, SendCertificateResponse, Vote, VoteInfoAPI, WorkerOthersBatchMessage,
-    WorkerOwnBatchMessage, WorkerToPrimary, WorkerToPrimaryServer,
+    now, validate_received_certificate_version, Certificate, CertificateAPI, CertificateDigest,
+    FetchCertificatesRequest, FetchCertificatesResponse, Header, HeaderAPI, MetadataAPI,
+    PreSubscribedBroadcastSender, PrimaryToPrimary, PrimaryToPrimaryServer, RequestVoteRequest,
+    RequestVoteResponse, Round, SendCertificateRequest, SendCertificateResponse, Vote, VoteInfoAPI,
+    WorkerOthersBatchMessage, WorkerOwnBatchMessage, WorkerToPrimary, WorkerToPrimaryServer,
 };
 
-#[cfg(any(test))]
+#[cfg(test)]
 #[path = "tests/primary_tests.rs"]
 pub mod primary_tests;
 
 /// The default channel capacity for each channel of the primary.
-pub const CHANNEL_CAPACITY: usize = 1_000;
+pub const CHANNEL_CAPACITY: usize = 10_000;
 
 /// The number of shutdown receivers to create on startup. We need one per component loop.
 pub const NUM_SHUTDOWN_RECEIVERS: u64 = 27;
@@ -90,7 +95,8 @@ impl Primary {
         network_signer: NetworkKeyPair,
         committee: Committee,
         worker_cache: WorkerCache,
-        _protocol_config: ProtocolConfig,
+        chain_identifier: ChainIdentifier,
+        protocol_config: ProtocolConfig,
         parameters: Parameters,
         client: NetworkClient,
         certificate_store: CertificateStore,
@@ -128,6 +134,11 @@ impl Primary {
             CHANNEL_CAPACITY,
             &primary_channel_metrics.tx_our_digests,
             &primary_channel_metrics.tx_our_digests_total,
+        );
+        let (tx_system_messages, rx_system_messages) = channel_with_total(
+            CHANNEL_CAPACITY,
+            &primary_channel_metrics.tx_system_messages,
+            &primary_channel_metrics.tx_system_messages_total,
         );
         let (tx_parents, rx_parents) = channel_with_total(
             CHANNEL_CAPACITY,
@@ -167,6 +178,7 @@ impl Primary {
         let synchronizer = Arc::new(Synchronizer::new(
             authority.id(),
             committee.clone(),
+            protocol_config.clone(),
             worker_cache.clone(),
             parameters.gc_depth,
             client.clone(),
@@ -180,6 +192,16 @@ impl Primary {
             &primary_channel_metrics,
         ));
 
+        // Convert authority private key into key used for random beacon.
+        let randomness_private_key = fastcrypto::groups::bls12381::Scalar::from_byte_array(
+            signer
+                .copy()
+                .private()
+                .as_bytes()
+                .try_into()
+                .expect("key length should match"),
+        )
+        .expect("should work to convert BLS key to Scalar");
         let signature_service = SignatureService::new(signer);
 
         // Spawn the network receiver listening to messages from the other primaries.
@@ -190,6 +212,7 @@ impl Primary {
         let mut primary_service = PrimaryToPrimaryServer::new(PrimaryReceiverHandler {
             authority_id: authority.id(),
             committee: committee.clone(),
+            protocol_config: protocol_config.clone(),
             worker_cache: worker_cache.clone(),
             synchronizer: synchronizer.clone(),
             signature_service: signature_service.clone(),
@@ -425,6 +448,7 @@ impl Primary {
         let core_handle = Certifier::spawn(
             authority.id(),
             committee.clone(),
+            protocol_config.clone(),
             certificate_store.clone(),
             synchronizer.clone(),
             signature_service,
@@ -439,6 +463,7 @@ impl Primary {
         let certificate_fetcher_handle = CertificateFetcher::spawn(
             authority.id(),
             committee.clone(),
+            protocol_config.clone(),
             network.clone(),
             certificate_store,
             rx_consensus_round_updates,
@@ -452,7 +477,8 @@ impl Primary {
         // a new header with new batch digests from our workers and sends it to the `Certifier`.
         let proposer_handle = Proposer::spawn(
             authority.id(),
-            committee,
+            committee.clone(),
+            &protocol_config,
             proposer_store,
             parameters.header_num_of_batches_threshold,
             parameters.max_header_num_of_batches,
@@ -462,6 +488,7 @@ impl Primary {
             tx_shutdown.subscribe(),
             rx_parents,
             rx_our_digests,
+            rx_system_messages,
             tx_headers,
             tx_narwhal_round_updates,
             rx_committed_own_headers,
@@ -479,10 +506,15 @@ impl Primary {
 
         // Keeps track of the latest consensus round and allows other tasks to clean up their their internal state
         let state_handler_handle = StateHandler::spawn(
+            &chain_identifier,
+            &protocol_config,
             authority.id(),
+            committee,
             rx_committed_certificates,
             tx_shutdown.subscribe(),
             Some(tx_committed_own_headers),
+            tx_system_messages,
+            RandomnessPrivateKey::from(randomness_private_key),
             network,
         );
         handles.push(state_handler_handle);
@@ -521,6 +553,7 @@ struct PrimaryReceiverHandler {
     /// The id of this primary.
     authority_id: AuthorityIdentifier,
     committee: Committee,
+    protocol_config: ProtocolConfig,
     worker_cache: WorkerCache,
     synchronizer: Arc<Synchronizer>,
     /// Service to sign headers.
@@ -627,10 +660,22 @@ impl PrimaryReceiverHandler {
                 });
             }
         } else {
+            let mut validated_received_parents = vec![];
+            for parent in parents {
+                validated_received_parents.push(
+                    validate_received_certificate_version(parent, &self.protocol_config).map_err(
+                        |err| {
+                            error!("request vote parents processing error: {err}");
+                            DagError::InvalidCertificateVersion
+                        },
+                    )?,
+                );
+            }
             // If requester has provided parent certificates, try to accept them.
             // It is ok to not check for additional unknown digests, because certificates can
             // become available asynchronously from broadcast or certificate fetching.
-            self.try_accept_unknown_parents(header, parents).await?;
+            self.try_accept_unknown_parents(header, validated_received_parents)
+                .await?;
         }
 
         // Ensure the header has all parents accepted. If some are missing, waits until they become
@@ -796,8 +841,9 @@ impl PrimaryReceiverHandler {
         Ok(())
     }
 
-    /// Gets parent certificate digests not known before, in storage, among suspended certificates,
-    /// or being requested from other header proposers.
+    /// Gets parent certificate digests not known before.
+    /// Digests that are in storage, suspended, or being requested from other proposers
+    /// are considered to be known.
     async fn get_unknown_parent_digests(
         &self,
         header: &Header,
@@ -854,7 +900,17 @@ impl PrimaryToPrimary for PrimaryReceiverHandler {
         request: anemo::Request<SendCertificateRequest>,
     ) -> Result<anemo::Response<SendCertificateResponse>, anemo::rpc::Status> {
         let _scope = monitored_scope("PrimaryReceiverHandler::send_certificate");
-        let certificate = request.into_body().certificate;
+        let certificate = validate_received_certificate_version(
+            request.into_body().certificate,
+            &self.protocol_config,
+        )
+        .map_err(|err| {
+            anemo::rpc::Status::new_with_message(
+                StatusCode::BadRequest,
+                format!("Invalid certifcate: {err}"),
+            )
+        })?;
+
         match self.synchronizer.try_accept_certificate(certificate).await {
             Ok(()) => Ok(anemo::Response::new(SendCertificateResponse {
                 accepted: true,

@@ -1,8 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { CoinFormat, useFormatCoin } from '@mysten/core';
-import { ArrowUpRight16 } from '@mysten/icons';
+import { CoinFormat, useFormatCoin, useResolveSuiNSName } from '@mysten/core';
+import { ArrowUpRight16, Info16 } from '@mysten/icons';
 import { type ObjectOwner, type SuiObjectResponse } from '@mysten/sui.js/client';
 import {
 	formatAddress,
@@ -24,6 +24,7 @@ import { Link } from '~/ui/Link';
 import { ObjectVideoImage } from '~/ui/ObjectVideoImage';
 import { extractName, getDisplayUrl, parseImageURL, parseObjectType } from '~/utils/objectUtils';
 import { genFileTypeMsg, trimStdLibPrefix } from '~/utils/stringUtils';
+import { Tooltip } from '~/ui/Tooltip';
 
 interface HeroVideoImageProps {
 	title: string;
@@ -93,12 +94,23 @@ function DescriptionCard({
 	objectType: string;
 	objectId: string;
 }) {
-	const { address, module, ...rest } = parseStructTag(objectType);
+	const { address, module, typeParams, ...rest } = parseStructTag(objectType);
 
-	const formattedAddress = formatAddress(address);
+	const formattedTypeParams = typeParams.map((typeParam) => {
+		if (typeof typeParam === 'string') {
+			return typeParam;
+		} else {
+			return {
+				...typeParam,
+				address: formatAddress(typeParam.address),
+			};
+		}
+	});
+
 	const structTag = {
-		address: formattedAddress,
+		address: formatAddress(address),
 		module,
+		typeParams: formattedTypeParams,
 		...rest,
 	};
 
@@ -123,7 +135,19 @@ function DescriptionCard({
 				<ObjectLink objectId={objectId} />
 			</Description>
 
-			<Description title="Type">
+			<Description
+				title={
+					<div className="flex items-center gap-1">
+						<Text variant="pBodySmall/medium" color="steel-dark">
+							Type
+						</Text>
+
+						<Tooltip tip={<div className="flex flex-wrap break-all">{objectType}</div>}>
+							<Info16 />
+						</Tooltip>
+					</div>
+				}
+			>
 				<ObjectLink
 					label={<div className="text-right">{normalizedStructTag}</div>}
 					objectId={`${address}?module=${module}`}
@@ -147,6 +171,12 @@ function VersionCard({ version, digest }: { version?: string; digest: string }) 
 			</Description>
 		</ObjectViewCard>
 	);
+}
+
+function AddressOwner({ address }: { address: string }) {
+	const { data: suinsDomainName } = useResolveSuiNSName(address);
+
+	return <AddressLink address={address} label={suinsDomainName} />;
 }
 
 function OwnerCard({
@@ -181,7 +211,7 @@ function OwnerCard({
 					) : 'ObjectOwner' in objOwner ? (
 						<ObjectLink objectId={objOwner.ObjectOwner} />
 					) : (
-						<AddressLink address={objOwner.AddressOwner} />
+						<AddressOwner address={objOwner.AddressOwner} />
 					)}
 				</Description>
 			)}
@@ -228,6 +258,8 @@ export function ObjectView({ data }: ObjectViewProps) {
 	const objectType = parseObjectType(data);
 	const objOwner = data.data?.owner;
 	const storageRebate = data.data?.storageRebate;
+	const objectId = data.data?.objectId;
+	const lastTransactionBlockDigest = data.data?.previousTransaction;
 
 	const heroImageTitle = name || display?.description || trimStdLibPrefix(objectType);
 	const heroImageSubtitle = video ? 'Video' : fileType ?? '';
@@ -257,18 +289,22 @@ export function ObjectView({ data }: ObjectViewProps) {
 				</div>
 			)}
 
-			<div style={{ gridArea: 'description' }}>
-				<DescriptionCard
-					name={name}
-					objectType={objectType}
-					objectId={data.data?.objectId!}
-					display={display}
-				/>
-			</div>
+			{objectId && (
+				<div style={{ gridArea: 'description' }}>
+					<DescriptionCard
+						name={name}
+						objectType={objectType}
+						objectId={objectId}
+						display={display}
+					/>
+				</div>
+			)}
 
-			<div style={{ gridArea: 'version' }}>
-				<VersionCard version={data.data?.version} digest={data.data?.previousTransaction!} />
-			</div>
+			{lastTransactionBlockDigest && (
+				<div style={{ gridArea: 'version' }}>
+					<VersionCard version={data.data?.version} digest={lastTransactionBlockDigest} />
+				</div>
+			)}
 
 			<div style={{ gridArea: 'owner' }}>
 				<OwnerCard objOwner={objOwner} display={display} storageRebate={storageRebate} />

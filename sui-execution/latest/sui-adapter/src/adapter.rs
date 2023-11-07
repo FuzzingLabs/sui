@@ -117,6 +117,7 @@ mod checked {
         is_metered: bool,
         protocol_config: &ProtocolConfig,
         metrics: Arc<LimitsMetrics>,
+        current_epoch_id: EpochId,
     ) -> NativeContextExtensions<'r> {
         let mut extensions = NativeContextExtensions::default();
         extensions.add(ObjectRuntime::new(
@@ -125,6 +126,7 @@ mod checked {
             is_metered,
             protocol_config,
             metrics,
+            current_epoch_id,
         ));
         extensions.add(NativesCostTable::from_protocol_config(protocol_config));
         extensions
@@ -144,12 +146,12 @@ mod checked {
 
             let addrs = &mut module.address_identifiers;
             let Some(address_mut) = addrs.get_mut(self_address_idx.0 as usize) else {
-            let name = module.identifier_at(self_handle.name);
-            return Err(ExecutionError::new_with_source(
-                ExecutionErrorKind::PublishErrorNonZeroAddress,
-                format!("Publishing module {name} with invalid address index"),
-            ));
-        };
+                let name = module.identifier_at(self_handle.name);
+                return Err(ExecutionError::new_with_source(
+                    ExecutionErrorKind::PublishErrorNonZeroAddress,
+                    format!("Publishing module {name} with invalid address index"),
+                ));
+            };
 
             if *address_mut != AccountAddress::ZERO {
                 let name = module.identifier_at(self_handle.name);

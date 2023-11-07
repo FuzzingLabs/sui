@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -39,7 +40,20 @@ impl Hash<{ crypto::DIGEST_LENGTH }> for ConsensusOutput {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+impl Display for ConsensusOutput {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ConsensusOutput(round={:?}, sub_dag_index={:?}, timestamp={:?}, digest={:?})",
+            self.sub_dag.leader_round(),
+            self.sub_dag.sub_dag_index,
+            self.sub_dag.commit_timestamp(),
+            self.digest()
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CommittedSubDag {
     /// The sequence of committed certificates.
     pub certificates: Vec<Certificate>,
@@ -443,20 +457,20 @@ impl fmt::Display for ConsensusOutputDigest {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Certificate, Header, HeaderV1Builder};
+    use crate::{Certificate, Header, HeaderV2Builder};
     use crate::{CommittedSubDag, ReputationScores};
     use config::AuthorityIdentifier;
     use indexmap::IndexMap;
     use std::collections::BTreeSet;
     use std::num::NonZeroUsize;
-    use test_utils::CommitteeFixture;
+    use test_utils::{latest_protocol_version, CommitteeFixture};
 
     #[test]
     fn test_zero_timestamp_in_sub_dag() {
         let fixture = CommitteeFixture::builder().build();
         let committee = fixture.committee();
 
-        let header_builder = HeaderV1Builder::default();
+        let header_builder = HeaderV2Builder::default();
         let header = header_builder
             .author(AuthorityIdentifier(1u16))
             .round(2)
@@ -467,8 +481,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let certificate =
-            Certificate::new_unsigned(&committee, Header::V1(header), Vec::new()).unwrap();
+        let certificate = Certificate::new_unsigned(
+            &latest_protocol_version(),
+            &committee,
+            Header::V2(header),
+            Vec::new(),
+        )
+        .unwrap();
 
         // AND we initialise the sub dag via the "restore" way
         let sub_dag_round = CommittedSubDag {
@@ -492,7 +511,7 @@ mod tests {
         let fixture = CommitteeFixture::builder().build();
         let committee = fixture.committee();
 
-        let header_builder = HeaderV1Builder::default();
+        let header_builder = HeaderV2Builder::default();
         let header = header_builder
             .author(AuthorityIdentifier(1u16))
             .round(2)
@@ -503,8 +522,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let certificate =
-            Certificate::new_unsigned(&committee, Header::V1(header), Vec::new()).unwrap();
+        let certificate = Certificate::new_unsigned(
+            &latest_protocol_version(),
+            &committee,
+            Header::V2(header),
+            Vec::new(),
+        )
+        .unwrap();
 
         // AND
         let sub_dag_round_2 = CommittedSubDag::new(
@@ -519,7 +543,7 @@ mod tests {
         assert_eq!(sub_dag_round_2.commit_timestamp, newer_timestamp);
 
         // Now create the leader of round 4 with the older timestamp
-        let header_builder = HeaderV1Builder::default();
+        let header_builder = HeaderV2Builder::default();
         let header = header_builder
             .author(AuthorityIdentifier(1u16))
             .round(4)
@@ -530,8 +554,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let certificate =
-            Certificate::new_unsigned(&committee, Header::V1(header), Vec::new()).unwrap();
+        let certificate = Certificate::new_unsigned(
+            &latest_protocol_version(),
+            &committee,
+            Header::V2(header),
+            Vec::new(),
+        )
+        .unwrap();
 
         // WHEN create the sub dag based on the "previously committed" sub dag.
         let sub_dag_round_4 = CommittedSubDag::new(

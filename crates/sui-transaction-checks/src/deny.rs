@@ -1,13 +1,15 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use fastcrypto_zkp::bn254::zk_login::OIDCProvider;
 use sui_config::transaction_deny_config::TransactionDenyConfig;
 use sui_types::{
+    base_types::ObjectRef,
     error::{SuiError, SuiResult, UserInputError},
+    signature::GenericSignature,
     storage::BackingPackageStore,
     transaction::{Command, InputObjectKind, TransactionData, TransactionDataAPI},
 };
-
 macro_rules! deny_if_true {
     ($cond:expr, $msg:expr) => {
         if ($cond) {
@@ -24,11 +26,13 @@ macro_rules! deny_if_true {
 /// deny config.
 pub fn check_transaction_for_signing(
     tx_data: &TransactionData,
+    tx_signatures: &[GenericSignature],
     input_objects: &[InputObjectKind],
+    receiving_objects: &[ObjectRef],
     filter_config: &TransactionDenyConfig,
     package_store: &impl BackingPackageStore,
 ) -> SuiResult {
-    check_disabled_features(filter_config, tx_data)?;
+    check_disabled_features(filter_config, tx_data, tx_signatures)?;
 
     check_signers(filter_config, tx_data)?;
 
@@ -36,21 +40,60 @@ pub fn check_transaction_for_signing(
 
     check_package_dependencies(filter_config, tx_data, package_store)?;
 
+    check_receiving_objects(filter_config, receiving_objects)?;
+
+    Ok(())
+}
+
+fn check_receiving_objects(
+    filter_config: &TransactionDenyConfig,
+    receiving_objects: &[ObjectRef],
+) -> SuiResult {
+    deny_if_true!(
+        filter_config.receiving_objects_disabled() && !receiving_objects.is_empty(),
+        "Receiving objects is temporarily disabled".to_string()
+    );
+    for (id, _, _) in receiving_objects {
+        deny_if_true!(
+            filter_config.get_object_deny_set().contains(id),
+            format!("Access to object {:?} is temporarily disabled", id)
+        );
+    }
     Ok(())
 }
 
 fn check_disabled_features(
     filter_config: &TransactionDenyConfig,
     tx_data: &TransactionData,
+    tx_signatures: &[GenericSignature],
 ) -> SuiResult {
     deny_if_true!(
         filter_config.user_transaction_disabled(),
         "Transaction signing is temporarily disabled"
     );
 
+    tx_signatures.iter().try_for_each(|s| {
+        if let GenericSignature::ZkLoginAuthenticator(z) = s {
+            deny_if_true!(
+                filter_config.zklogin_sig_disabled(),
+                "zkLogin authenticator is temporarily disabled"
+            );
+            deny_if_true!(
+                filter_config.zklogin_disabled_providers().contains(
+                    &OIDCProvider::from_iss(z.get_iss())
+                        .map_err(|_| SuiError::UnexpectedMessage)?
+                        .to_string()
+                ),
+                "zkLogin OAuth provider is temporarily disabled"
+            )
+        }
+        Ok(())
+    })?;
+
     if !filter_config.package_publish_disabled() && !filter_config.package_upgrade_disabled() {
         return Ok(());
     }
+
     for command in tx_data.kind().iter_commands() {
         deny_if_true!(
             filter_config.package_publish_disabled() && matches!(command, Command::Publish(..)),
@@ -130,15 +173,14 @@ fn check_package_dependencies(
                 dependencies.push(*package_id);
             }
             Command::MoveCall(call) => {
-                let package =
-                    package_store
-                        .get_package(&call.package)?
-                        .ok_or(SuiError::UserInputError {
-                            error: UserInputError::ObjectNotFound {
-                                object_id: call.package,
-                                version: None,
-                            },
-                        })?;
+                let package = package_store.get_package_object(&call.package)?.ok_or(
+                    SuiError::UserInputError {
+                        error: UserInputError::ObjectNotFound {
+                            object_id: call.package,
+                            version: None,
+                        },
+                    },
+                )?;
                 // linkage_table maps from the original package ID to the upgraded ID for each
                 // dependency. Here we only check the upgraded (i.e. the latest) ID against the
                 // deny list. This means that we only make sure that the denied package is not
@@ -146,11 +188,12 @@ fn check_package_dependencies(
                 // package but permits the use of a newer version.
                 dependencies.extend(
                     package
+                        .move_package()
                         .linkage_table()
                         .values()
                         .map(|upgrade_info| upgrade_info.upgraded_id),
                 );
-                dependencies.push(package.id());
+                dependencies.push(package.move_package().id());
             }
             Command::TransferObjects(..)
             | &Command::SplitCoins(..)

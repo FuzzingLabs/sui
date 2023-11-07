@@ -290,10 +290,9 @@ impl CheckpointExecutor {
         let Some(latest_synced_checkpoint) = self
             .checkpoint_store
             .get_highest_synced_checkpoint()
-            .expect("Failed to read highest synced checkpoint") else {
-            debug!(
-                "No checkpoints to schedule, highest synced checkpoint is None",
-            );
+            .expect("Failed to read highest synced checkpoint")
+        else {
+            debug!("No checkpoints to schedule, highest synced checkpoint is None",);
             return;
         };
 
@@ -587,6 +586,8 @@ impl CheckpointExecutor {
                         checkpoint.clone(),
                     )
                     .await;
+
+                    fail_point_async!("prune-and-compact");
 
                     // For finalizing the checkpoint, we need to pass in all checkpoint
                     // transaction effects, not just the change_epoch tx effects. However,
@@ -936,7 +937,7 @@ fn get_unexecuted_transactions(
     let executable_txns: Vec<_> = if let Some(full_contents_txns) = full_contents_txns {
         unexecuted_txns
             .into_iter()
-            .zip(expected_effects_digests.into_iter())
+            .zip(expected_effects_digests)
             .map(|(tx_digest, expected_effects_digest)| {
                 let tx = &full_contents_txns.get(&tx_digest).unwrap().transaction;
                 (
@@ -954,7 +955,7 @@ fn get_unexecuted_transactions(
             .multi_get_transaction_blocks(&unexecuted_txns)
             .expect("Failed to get checkpoint txes from store")
             .into_iter()
-            .zip(expected_effects_digests.into_iter())
+            .zip(expected_effects_digests)
             .enumerate()
             .map(|(i, (tx, expected_effects_digest))| {
                 let tx = tx.unwrap_or_else(||
@@ -964,7 +965,7 @@ fn get_unexecuted_transactions(
                     )
                 );
                 // change epoch tx is handled specially in check_epoch_last_checkpoint
-                assert!(!tx.data().intent_message().value.is_change_epoch_tx());
+                assert!(!tx.data().intent_message().value.is_end_of_epoch_tx());
                 (
                     VerifiedExecutableTransaction::new_from_checkpoint(
                         tx,

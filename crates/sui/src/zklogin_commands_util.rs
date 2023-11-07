@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::anyhow;
+use fastcrypto::encoding::{Base64, Encoding};
 use fastcrypto::jwt_utils::parse_and_validate_jwt;
 use fastcrypto::traits::EncodeDecodeBase64;
 use fastcrypto_zkp::bn254::utils::{gen_address_seed, get_zk_login_address};
@@ -13,6 +14,8 @@ use serde_json::json;
 use shared_crypto::intent::Intent;
 use std::io;
 use std::io::Write;
+use std::thread::sleep;
+use std::time::Duration;
 use sui_json_rpc_types::SuiTransactionBlockResponseOptions;
 use sui_keys::keystore::{AccountKeystore, Keystore};
 use sui_sdk::SuiClientBuilder;
@@ -68,9 +71,9 @@ pub async fn perform_zk_login_test_tx(
     network: &str,
 ) -> Result<String, anyhow::Error> {
     let (gas_url, fullnode_url) = get_config(network);
-    let user_salt = get_salt(parsed_token)
+    let user_salt = get_salt(parsed_token, "https://salt.api.mystenlabs.com/get_salt")
         .await
-        .map_err(|_| anyhow!("Failed to get salt"))?;
+        .unwrap_or("129390038577185583942388216820280642146".to_string());
     println!("User salt: {user_salt}");
     let reader = get_proof(
         parsed_token,
@@ -78,9 +81,10 @@ pub async fn perform_zk_login_test_tx(
         jwt_randomness,
         kp_bigint,
         &user_salt,
+        "https://prover-dev.mystenlabs.com/v1",
     )
     .await
-    .map_err(|_| anyhow!("Failed to get salt"))?;
+    .map_err(|_| anyhow!("Failed to get proof"))?;
     println!("ZkLogin inputs:");
     println!("{:?}", serde_json::to_string(&reader).unwrap());
     let (sub, aud) = parse_and_validate_jwt(parsed_token)?;
@@ -95,15 +99,16 @@ pub async fn perform_zk_login_test_tx(
     // Request some coin from faucet and build a test transaction.
     let sui = SuiClientBuilder::default().build(fullnode_url).await?;
     request_tokens_from_faucet(zklogin_address, gas_url).await?;
+    sleep(Duration::from_secs(10));
 
     let Some(coin) = sui
         .coin_read_api()
         .get_coins(zklogin_address, None, None, None)
         .await?
         .next_cursor
-        else {
-            panic!("Faucet did not work correctly and the provided Sui address has no coins")
-        };
+    else {
+        panic!("Faucet did not work correctly and the provided Sui address has no coins")
+    };
     let txb_res = sui
         .transaction_builder()
         .transfer_object(
@@ -116,7 +121,7 @@ pub async fn perform_zk_login_test_tx(
         .await?;
     println!(
         "Faucet requested and created test transaction: {:?}",
-        txb_res
+        Base64::encode(bcs::to_bytes(&txb_res).unwrap())
     );
 
     // Sign transaction with the ephemeral key

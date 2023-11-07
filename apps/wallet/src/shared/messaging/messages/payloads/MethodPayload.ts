@@ -1,13 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { type ExportedKeypair, type SerializedSignature } from '@mysten/sui.js/cryptography';
-import { isBasePayload } from './BasePayload';
 import { type AccountSourceSerializedUI } from '_src/background/account-sources/AccountSource';
 import { type SerializedUIAccount } from '_src/background/accounts/Account';
+import { type ZkLoginProvider } from '_src/background/accounts/zklogin/providers';
+import { type Status } from '_src/background/legacy-accounts/storage-migration';
+import { type ExportedKeypair, type SerializedSignature } from '@mysten/sui.js/cryptography';
 
-import { type ZkProvider } from '_src/background/accounts/zk/providers';
-import { type Status } from '_src/background/storage-migration';
+import { isBasePayload } from './BasePayload';
 import type { Payload } from './Payload';
 
 export type UIAccessibleEntityType = 'accountSources' | 'accounts';
@@ -15,6 +15,7 @@ export type LedgerAccountsPublicKeys = {
 	accountID: string;
 	publicKey: string;
 }[];
+export type PasswordRecoveryData = { type: 'mnemonic'; accountSourceID: string; entropy: string };
 
 type MethodPayloads = {
 	getStoredEntities: { type: UIAccessibleEntityType };
@@ -38,8 +39,8 @@ type MethodPayloads = {
 				password: string;
 		  }
 		| {
-				type: 'zk';
-				provider: ZkProvider;
+				type: 'zkLogin';
+				provider: ZkLoginProvider;
 		  };
 	accountsCreatedResponse: { accounts: SerializedUIAccount[] };
 	signData: { data: string; id: string };
@@ -50,7 +51,7 @@ type MethodPayloads = {
 	doStorageMigration: { password: string };
 	switchAccount: { accountID: string };
 	setAccountNickname: { id: string; nickname: string | null };
-	verifyPassword: { password: string };
+	verifyPassword: { password: string; legacyAccounts?: boolean };
 	storeLedgerAccountsPublicKeys: { publicKeysToStore: LedgerAccountsPublicKeys };
 	getAccountSourceEntropy: { accountSourceID: string; password?: string };
 	getAccountSourceEntropyResponse: { entropy: string };
@@ -61,6 +62,15 @@ type MethodPayloads = {
 	notifyUserActive: {};
 	getAccountKeyPair: { accountID: string; password: string };
 	getAccountKeyPairResponse: { accountID: string; keyPair: ExportedKeypair };
+	resetPassword: {
+		password: string;
+		recoveryData: PasswordRecoveryData[];
+	};
+	verifyPasswordRecoveryData: {
+		data: PasswordRecoveryData;
+	};
+	removeAccount: { accountID: string };
+	acknowledgeZkLoginWarning: { accountID: string };
 };
 
 type Methods = keyof MethodPayloads;

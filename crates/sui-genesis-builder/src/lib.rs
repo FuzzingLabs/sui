@@ -17,7 +17,7 @@ use sui_config::genesis::{
     UnsignedGenesis,
 };
 use sui_execution::{self, Executor};
-use sui_framework::BuiltInFramework;
+use sui_framework::{BuiltInFramework, SystemPackage};
 use sui_protocol_config::{Chain, ProtocolConfig, ProtocolVersion};
 use sui_types::base_types::{
     ExecutionDigests, ObjectID, SequenceNumber, SuiAddress, TransactionDigest, TxContext,
@@ -454,8 +454,8 @@ impl Builder {
                     .iter()
                     .find(|(_k, (o, s))| {
                         let Owner::AddressOwner(owner) = &o.owner else {
-                        panic!("gas object owner must be address owner");
-                    };
+                            panic!("gas object owner must be address owner");
+                        };
                         *owner == allocation.recipient_address
                             && s.principal() == allocation.amount_mist
                             && s.pool_id() == staking_pool_id
@@ -664,13 +664,14 @@ fn create_genesis_context(
     genesis_chain_parameters: &GenesisChainParameters,
     genesis_validators: &[GenesisValidatorMetadata],
     token_distribution_schedule: &TokenDistributionSchedule,
+    system_packages: &[SystemPackage],
 ) -> TxContext {
     let mut hasher = DefaultHash::default();
     hasher.update(b"sui-genesis");
     hasher.update(&bcs::to_bytes(genesis_chain_parameters).unwrap());
     hasher.update(&bcs::to_bytes(genesis_validators).unwrap());
     hasher.update(&bcs::to_bytes(token_distribution_schedule).unwrap());
-    for system_package in BuiltInFramework::iter_system_packages() {
+    for system_package in system_packages {
         hasher.update(&bcs::to_bytes(system_package.bytes()).unwrap());
     }
 
@@ -717,11 +718,19 @@ fn build_unsigned_genesis_data(
 
     let epoch_data = EpochData::new_genesis(genesis_chain_parameters.chain_start_timestamp_ms);
 
+    // Get the correct system packages for our protocol version. If we cannot find the snapshot
+    // that means that we must be at the latest version and we should use the latest version of the
+    // framework.
+    let system_packages =
+        sui_framework_snapshot::load_bytecode_snapshot(parameters.protocol_version.as_u64())
+            .unwrap_or_else(|_| BuiltInFramework::iter_system_packages().cloned().collect());
+
     let mut genesis_ctx = create_genesis_context(
         &epoch_data,
         &genesis_chain_parameters,
         &genesis_validators,
         token_distribution_schedule,
+        &system_packages,
     );
 
     // Use a throwaway metrics registry for genesis transaction execution.
@@ -734,6 +743,7 @@ fn build_unsigned_genesis_data(
         &genesis_validators,
         &genesis_chain_parameters,
         token_distribution_schedule,
+        system_packages,
         metrics.clone(),
     );
 
@@ -763,7 +773,8 @@ fn create_genesis_checkpoint(
         transaction: *transaction.digest(),
         effects: effects.digest(),
     };
-    let contents = CheckpointContents::new_with_causally_ordered_transactions([execution_digests]);
+    let contents =
+        CheckpointContents::new_with_digests_and_signatures([execution_digests], vec![vec![]]);
     let checkpoint = CheckpointSummary {
         epoch: 0,
         sequence_number: 0,
@@ -829,7 +840,7 @@ fn create_genesis_transaction(
         let certificate_deny_set = HashSet::new();
         let transaction_data = &genesis_transaction.data().intent_message().value;
         let (kind, signer, _) = transaction_data.execution_parts();
-        let input_objects = InputObjects::new(vec![]);
+        let input_objects = InputObjects::new(vec![], vec![]);
         let (inner_temp_store, effects, _execution_error) = executor
             .execute_transaction_to_effects(
                 &InMemoryStorage::new(Vec::new()),
@@ -867,6 +878,7 @@ fn create_genesis_objects(
     validators: &[GenesisValidatorMetadata],
     parameters: &GenesisChainParameters,
     token_distribution_schedule: &TokenDistributionSchedule,
+    system_packages: Vec<SystemPackage>,
     metrics: Arc<LimitsMetrics>,
 ) -> Vec<Object> {
     let mut store = InMemoryStorage::new(Vec::new());
@@ -884,7 +896,7 @@ fn create_genesis_objects(
     let executor = sui_execution::executor(&protocol_config, paranoid_checks, silent)
         .expect("Creating an executor should not fail here");
 
-    for system_package in BuiltInFramework::iter_system_packages() {
+    for system_package in system_packages.into_iter() {
         process_package(
             &mut store,
             executor.as_ref(),
@@ -898,7 +910,6 @@ fn create_genesis_objects(
     }
 
     {
-        let store = Arc::get_mut(&mut store).expect("only one reference to store");
         for object in input_objects {
             store.insert_object(object.to_owned());
         }
@@ -915,12 +926,11 @@ fn create_genesis_objects(
     )
     .unwrap();
 
-    let store = Arc::try_unwrap(store).expect("only one reference to store");
     store.into_inner().into_values().collect()
 }
 
 fn process_package(
-    store: &mut Arc<InMemoryStorage>,
+    store: &mut InMemoryStorage,
     executor: &dyn Executor,
     ctx: &mut TxContext,
     modules: &[CompiledModule],
@@ -951,7 +961,7 @@ fn process_package(
     }
     let loaded_dependencies: Vec<_> = dependencies
         .iter()
-        .zip(dependency_objects.into_iter())
+        .zip(dependency_objects)
         .filter_map(|(dependency, object)| {
             Some((
                 InputObjectKind::MovePackage(*dependency),
@@ -979,18 +989,17 @@ fn process_package(
         protocol_config,
         metrics,
         ctx,
-        InputObjects::new(loaded_dependencies),
+        InputObjects::new(loaded_dependencies, vec![]),
         pt,
     )?;
 
-    let store = Arc::get_mut(store).expect("only one reference to store");
     store.finish(written);
 
     Ok(())
 }
 
 pub fn generate_genesis_system_object(
-    store: &mut Arc<InMemoryStorage>,
+    store: &mut InMemoryStorage,
     executor: &dyn Executor,
     genesis_validators: &[GenesisValidatorMetadata],
     genesis_ctx: &mut TxContext,
@@ -1070,16 +1079,25 @@ pub fn generate_genesis_system_object(
         builder.finish()
     };
 
-    let InnerTemporaryStore { written, .. } = executor.update_genesis_state(
+    let InnerTemporaryStore { mut written, .. } = executor.update_genesis_state(
         &*store,
         &protocol_config,
         metrics,
         genesis_ctx,
-        InputObjects::new(vec![]),
+        InputObjects::new(vec![], vec![]),
         pt,
     )?;
 
-    let store = Arc::get_mut(store).expect("only one reference to store");
+    // update the value of the clock to match the chain start time
+    {
+        let object = written.get_mut(&sui_types::SUI_CLOCK_OBJECT_ID).unwrap();
+        object
+            .data
+            .try_as_move_mut()
+            .unwrap()
+            .set_clock_timestamp_ms_unsafe(genesis_chain_parameters.chain_start_timestamp_ms);
+    }
+
     store.finish(written);
 
     Ok(())

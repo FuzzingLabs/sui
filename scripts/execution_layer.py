@@ -9,6 +9,7 @@ import re
 from shutil import which, rmtree
 import subprocess
 from sys import stderr, stdout
+from typing import TextIO, Union
 
 
 def parse_args():
@@ -167,7 +168,6 @@ def do_generate_lib(args):
         lib_path = Path() / "sui-execution" / "src" / "lib.rs"
         with open(lib_path, mode="w") as lib:
             generate_lib(lib)
-
 
 def do_merge(args):
     from_module = impl(args.feature)
@@ -358,7 +358,7 @@ def cut_command(f):
     return [
         *["./target/debug/cut", "--feature", f],
         *["-d", f"sui-execution/latest:sui-execution/{f}:-latest"],
-        *["-d", f"external-crates/move:external-crates/move-execution/{f}"],
+        *["-d", f"external-crates/move:external-crates/move/move-execution/{f}"],
         *["-p", "sui-adapter-latest"],
         *["-p", "sui-move-natives-latest"],
         *["-p", "sui-verifier-latest"],
@@ -390,9 +390,9 @@ def cut_directories(f):
     else:
         crates.extend(
             [
-                external / "move-execution" / f / "move-bytecode-verifier",
-                external / "move-execution" / f / "move-stdlib",
-                external / "move-execution" / f / "move-vm" / "runtime",
+                external / "move" / "move-execution" / f / "move-bytecode-verifier",
+                external / "move" / "move-execution" / f / "move-stdlib",
+                external / "move" / "move-execution" / f / "move-vm" / "runtime",
             ]
         )
 
@@ -401,12 +401,12 @@ def cut_directories(f):
 
 def impl(feature):
     """Path to the impl module for this feature"""
-    return Path() / "sui-execution" / "src" / (feature + ".rs")
+    return Path() / "sui-execution" / "src" / (feature.replace("-", "_") + ".rs")
 
 
 def clean_up_cut(feature):
     """Remove some special-case files/directories from a given cut"""
-    move_exec = Path() / "external-crates" / "move-execution" / feature
+    move_exec = Path() / "external-crates" / "move" / "move-execution" / feature
     rmtree(move_exec / "move-bytecode-verifier" / "transactional-tests")
     remove(move_exec / "move-stdlib" / "src" / "main.rs")
     rmtree(move_exec / "move-stdlib" / "tests")
@@ -443,11 +443,11 @@ def generate_impls(feature, copy):
     orig = Path() / "sui-execution" / "src" / "latest.rs"
     with open(orig, mode="r") as orig, open(copy, mode="w") as copy:
         for line in orig:
-            line = re.sub(r"^use (.*)_latest::", rf"use \1_{feature}::", line)
+            line = re.sub(r"^use (.*)_latest::", rf"use \1_{feature.replace('-', '_')}::", line)
             copy.write(line)
 
 
-def generate_lib(output_file):
+def generate_lib(output_file: TextIO):
     """Expose all `Executor` and `Verifier` impls via lib.rs
 
     Generates the contents of sui-execution/src/lib.rs to assign a numeric
@@ -507,15 +507,23 @@ def generate_lib(output_file):
         else:
             raise Exception(f"Don't know how to substitute {var}")
 
-    output_file.write(
-        re.sub(
+
+    rust_code = re.sub(
             r"^(\s*)// \$([A-Z_]+)$",
             substitute,
             template,
             flags=re.MULTILINE,
-        ),
-    )
+        )
 
+    try:
+        result = subprocess.run(['rustfmt'], input=rust_code, text=True, capture_output=True, check=True)
+        formatted_code = result.stdout
+        output_file.write(formatted_code)
+    except subprocess.CalledProcessError as e:
+        print(f"rustfmt failed with error code {e.returncode}")
+        print("stderr:", e.stderr)
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 # Modules in `sui-execution` that don't count as "cuts" (they are
 # other supporting modules)
@@ -591,7 +599,8 @@ def discover_cuts():
     # assigned versions in lexicographical order.
     for i, feature in enumerate(features):
         version = f"u64::MAX - {i}" if i > 0 else "u64::MAX"
-        cuts.append((version, feature.stem.upper(), feature.stem))
+        feature_stem = feature.stem.replace("-", "_")
+        cuts.append((version, feature_stem.upper(), feature_stem))
 
     return cuts
 

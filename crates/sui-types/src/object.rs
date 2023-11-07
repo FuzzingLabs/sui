@@ -43,8 +43,8 @@ pub const OBJECT_START_VERSION: SequenceNumber = SequenceNumber::from_u64(1);
 pub struct MoveObject {
     /// The type of this object. Immutable
     type_: MoveObjectType,
-    /// Determines if it is usable with the TransferObject command
-    /// Derived from the type_
+    /// DEPRECATED this field is no longer used to determine whether a tx can transfer this
+    /// object. Instead, it is always calculated from the objects type when loaded in execution
     has_public_transfer: bool,
     /// Number that increases each time a tx takes this object as a mutable input
     /// This is a lamport timestamp, not a sequentially increasing version
@@ -216,8 +216,28 @@ impl MoveObject {
         self.contents.splice(ID_END_INDEX.., value.to_le_bytes());
     }
 
+    /// Update the `timestamp_ms: u64` field of the `Clock` type.
+    ///
+    /// Panics if the object isn't a `Clock`.
+    pub fn set_clock_timestamp_ms_unsafe(&mut self, timestamp_ms: u64) {
+        assert!(self.is_clock());
+        // 32 bytes for object ID, 8 for timestamp
+        assert!(self.contents.len() == 40);
+
+        self.contents
+            .splice(ID_END_INDEX.., timestamp_ms.to_le_bytes());
+    }
+
     pub fn is_coin(&self) -> bool {
         self.type_.is_coin()
+    }
+
+    pub fn is_staked_sui(&self) -> bool {
+        self.type_.is_staked_sui()
+    }
+
+    pub fn is_clock(&self) -> bool {
+        self.type_.is(&crate::clock::Clock::type_())
     }
 
     pub fn version(&self) -> SequenceNumber {
@@ -341,6 +361,10 @@ impl MoveObject {
         resolver: &impl GetModule,
     ) -> Result<MoveStruct, SuiError> {
         self.to_move_struct(&self.get_layout(format, resolver)?)
+    }
+
+    pub fn to_rust<'de, T: Deserialize<'de>>(&'de self) -> Option<T> {
+        bcs::from_bytes(self.contents()).ok()
     }
 
     /// Approximate size of the object in bytes. This is used for gas metering.
@@ -889,6 +913,10 @@ impl Object {
         // Index access safe due to checks above.
         let type_tag = move_struct.type_params[0].clone();
         Ok(type_tag)
+    }
+
+    pub fn to_rust<'de, T: Deserialize<'de>>(&'de self) -> Option<T> {
+        self.data.try_as_move().and_then(|data| data.to_rust())
     }
 }
 

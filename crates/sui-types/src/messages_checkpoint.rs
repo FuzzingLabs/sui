@@ -329,20 +329,7 @@ pub struct CheckpointContentsV1 {
 }
 
 impl CheckpointContents {
-    pub fn new_with_causally_ordered_transactions<T>(contents: T) -> Self
-    where
-        T: IntoIterator<Item = ExecutionDigests>,
-    {
-        let transactions: Vec<_> = contents.into_iter().collect();
-        let user_signatures = transactions.iter().map(|_| vec![]).collect();
-        Self::V1(CheckpointContentsV1 {
-            digest: Default::default(),
-            transactions,
-            user_signatures,
-        })
-    }
-
-    pub fn new_with_causally_ordered_transactions_and_signatures<T>(
+    pub fn new_with_digests_and_signatures<T>(
         contents: T,
         user_signatures: Vec<Vec<GenericSignature>>,
     ) -> Self
@@ -351,6 +338,41 @@ impl CheckpointContents {
     {
         let transactions: Vec<_> = contents.into_iter().collect();
         assert_eq!(transactions.len(), user_signatures.len());
+        Self::V1(CheckpointContentsV1 {
+            digest: Default::default(),
+            transactions,
+            user_signatures,
+        })
+    }
+
+    pub fn new_with_causally_ordered_execution_data<'a, T>(contents: T) -> Self
+    where
+        T: IntoIterator<Item = &'a VerifiedExecutionData>,
+    {
+        let (transactions, user_signatures): (Vec<_>, Vec<_>) = contents
+            .into_iter()
+            .map(|data| {
+                (
+                    data.digests(),
+                    data.transaction.inner().data().tx_signatures().to_owned(),
+                )
+            })
+            .unzip();
+        assert_eq!(transactions.len(), user_signatures.len());
+        Self::V1(CheckpointContentsV1 {
+            digest: Default::default(),
+            transactions,
+            user_signatures,
+        })
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn new_with_digests_only_for_tests<T>(contents: T) -> Self
+    where
+        T: IntoIterator<Item = ExecutionDigests>,
+    {
+        let transactions: Vec<_> = contents.into_iter().collect();
+        let user_signatures = transactions.iter().map(|_| vec![]).collect();
         Self::V1(CheckpointContentsV1 {
             digest: Default::default(),
             transactions,
@@ -383,7 +405,7 @@ impl CheckpointContents {
             ..
         } = self.into_v1();
 
-        transactions.into_iter().zip(user_signatures.into_iter())
+        transactions.into_iter().zip(user_signatures)
     }
 
     /// Return an iterator that enumerates the transactions in the contents.
@@ -436,8 +458,14 @@ impl FullCheckpointContents {
     where
         T: IntoIterator<Item = ExecutionData>,
     {
-        let transactions: Vec<_> = contents.into_iter().collect();
-        let user_signatures = transactions.iter().map(|_| vec![]).collect();
+        let (transactions, user_signatures): (Vec<_>, Vec<_>) = contents
+            .into_iter()
+            .map(|data| {
+                let sig = data.transaction.data().tx_signatures().to_owned();
+                (data, sig)
+            })
+            .unzip();
+        assert_eq!(transactions.len(), user_signatures.len());
         Self {
             transactions,
             user_signatures,
@@ -547,7 +575,7 @@ impl FullCheckpointContents {
             transaction,
             effects,
         };
-        FullCheckpointContents::new_with_causally_ordered_transactions(vec![exe_data].into_iter())
+        FullCheckpointContents::new_with_causally_ordered_transactions(vec![exe_data])
     }
 }
 
@@ -631,9 +659,7 @@ mod tests {
         let (keys, committee) = make_committee_key(&mut rng);
         let (_, committee2) = make_committee_key(&mut rng);
 
-        let set = CheckpointContents::new_with_causally_ordered_transactions(
-            [ExecutionDigests::random()].into_iter(),
-        );
+        let set = CheckpointContents::new_with_digests_only_for_tests([ExecutionDigests::random()]);
 
         // TODO: duplicated in a test below.
 
@@ -676,9 +702,7 @@ mod tests {
         let mut rng = StdRng::from_seed(RNG_SEED);
         let (keys, committee) = make_committee_key(&mut rng);
 
-        let set = CheckpointContents::new_with_causally_ordered_transactions(
-            [ExecutionDigests::random()].into_iter(),
-        );
+        let set = CheckpointContents::new_with_digests_only_for_tests([ExecutionDigests::random()]);
 
         let summary = CheckpointSummary::new(
             committee.epoch,
@@ -713,9 +737,9 @@ mod tests {
             .iter()
             .map(|k| {
                 let name = k.public().into();
-                let set = CheckpointContents::new_with_causally_ordered_transactions(
-                    [ExecutionDigests::random()].into_iter(),
-                );
+                let set = CheckpointContents::new_with_digests_only_for_tests([
+                    ExecutionDigests::random(),
+                ]);
 
                 SignedCheckpointSummary::new(
                     committee.epoch,

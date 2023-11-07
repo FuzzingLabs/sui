@@ -5,11 +5,17 @@ pub mod commands;
 pub mod config;
 pub mod server;
 
-mod context_data;
+pub(crate) mod functional_group;
+
+pub mod client;
+pub mod cluster;
+pub mod context_data;
 mod error;
+pub mod examples;
 mod extensions;
-mod functional_group;
+mod metrics;
 mod types;
+pub mod utils;
 
 use async_graphql::*;
 use types::owner::ObjectOwner;

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type Config } from 'tailwindcss';
-import { fontFamily } from 'tailwindcss/defaultTheme';
 import colors from 'tailwindcss/colors';
+import { fontFamily } from 'tailwindcss/defaultTheme';
 
 /** The minimum line height that text should use to avoid clipping and overflow scrolling */
 const MIN_LINE_HEIGHT = '1.13';
@@ -77,6 +77,9 @@ export default {
 			offwhite: '#fefefe',
 			offblack: '#111111',
 			ebony: '#101828',
+			avocado: {
+				200: '#CBE5BE',
+			},
 		},
 
 		extend: {
@@ -200,6 +203,7 @@ export default {
 			minWidth: {
 				10: '2.5rem',
 				18: '4.5rem',
+				44: '11rem',
 				50: '12.5rem',
 				transactionColumn: '31.875rem',
 				smallThumbNailsViewContainer: '13.125rem',

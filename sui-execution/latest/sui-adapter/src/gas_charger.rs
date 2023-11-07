@@ -11,7 +11,9 @@ pub mod checked {
     use crate::temporary_store::TemporaryStore;
     use sui_protocol_config::ProtocolConfig;
     use sui_types::gas::{deduct_gas, GasCostSummary, SuiGasStatus};
-    use sui_types::gas_model::gas_predicates::dont_charge_budget_on_storage_oog;
+    use sui_types::gas_model::gas_predicates::{
+        charge_upgrades, dont_charge_budget_on_storage_oog,
+    };
     use sui_types::{
         base_types::{ObjectID, ObjectRef},
         digests::TransactionDigest,
@@ -19,7 +21,6 @@ pub mod checked {
         gas_model::tables::GasStatus,
         is_system_package,
         object::Data,
-        storage::{DeleteKindWithOldVersion, WriteKind},
     };
     use tracing::trace;
 
@@ -138,10 +139,10 @@ pub mod checked {
                 .map(|obj_ref| {
                     let obj = temporary_store.objects().get(&obj_ref.0).unwrap();
                     let Data::Move(move_obj) = &obj.data else {
-                    return Err(ExecutionError::invariant_violation(
-                        "Provided non-gas coin object as input for gas!"
-                    ));
-                };
+                        return Err(ExecutionError::invariant_violation(
+                            "Provided non-gas coin object as input for gas!",
+                        ));
+                    };
                     if !move_obj.type_().is_gas_coin() {
                         return Err(ExecutionError::invariant_violation(
                             "Provided non-gas coin object as input for gas!",
@@ -172,9 +173,9 @@ pub mod checked {
                 })
                 .clone();
             // delete all gas objects except the primary_gas_object
-            for (id, version, _digest) in &self.gas_coins[1..] {
+            for (id, _version, _digest) in &self.gas_coins[1..] {
                 debug_assert_ne!(*id, primary_gas_object.id());
-                temporary_store.delete_object(id, DeleteKindWithOldVersion::Normal(*version));
+                temporary_store.delete_input_object(id);
             }
             primary_gas_object
                 .data
@@ -187,7 +188,7 @@ pub mod checked {
                     )
                 })
                 .set_coin_value_unsafe(new_balance);
-            temporary_store.write_object(primary_gas_object, WriteKind::Mutate);
+            temporary_store.mutate_input_object(primary_gas_object);
         }
 
         //
@@ -205,6 +206,14 @@ pub mod checked {
 
         pub fn charge_publish_package(&mut self, size: usize) -> Result<(), ExecutionError> {
             self.gas_status.charge_publish_package(size)
+        }
+
+        pub fn charge_upgrade_package(&mut self, size: usize) -> Result<(), ExecutionError> {
+            if charge_upgrades(self.gas_model_version) {
+                self.gas_status.charge_publish_package(size)
+            } else {
+                Ok(())
+            }
         }
 
         pub fn charge_input_objects(
@@ -288,7 +297,7 @@ pub mod checked {
                 #[skip_checked_arithmetic]
                 trace!(gas_used, gas_obj_id =? gas_object.id(), gas_obj_ver =? gas_object.version(), "Updated gas object");
 
-                temporary_store.write_object(gas_object, WriteKind::Mutate);
+                temporary_store.mutate_input_object(gas_object);
                 cost_summary
             } else {
                 GasCostSummary::default()

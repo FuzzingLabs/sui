@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useGetDynamicFields, useGetObject } from '@mysten/core';
-import { useNormalizedMoveStruct } from '@mysten/dapp-kit';
+import { useSuiClientQuery } from '@mysten/dapp-kit';
 import { type SuiObjectResponse } from '@mysten/sui.js/client';
 import { Heading } from '@mysten/ui';
 import { type ReactNode, useState } from 'react';
@@ -26,7 +26,7 @@ enum TABS_VALUES {
 }
 
 function useObjectFieldsCard(id: string) {
-	const { data: suiObjectResponseData, isLoading, isError } = useGetObject(id);
+	const { data: suiObjectResponseData, isPending, isError } = useGetObject(id);
 
 	const objectType =
 		suiObjectResponseData?.data?.type ??
@@ -39,9 +39,10 @@ function useObjectFieldsCard(id: string) {
 	// Get the normalized struct for the object
 	const {
 		data: normalizedStructData,
-		isLoading: loadingNormalizedStruct,
+		isPending: loadingNormalizedStruct,
 		isError: errorNormalizedMoveStruct,
-	} = useNormalizedMoveStruct(
+	} = useSuiClientQuery(
+		'getNormalizedMoveStruct',
 		{
 			package: packageId,
 			module: moduleName,
@@ -53,7 +54,7 @@ function useObjectFieldsCard(id: string) {
 	);
 
 	return {
-		loading: isLoading || loadingNormalizedStruct,
+		loading: isPending || loadingNormalizedStruct,
 		error: isError || errorNormalizedMoveStruct,
 		normalizedStructData,
 		suiObjectResponseData,

@@ -31,9 +31,9 @@ const MAX_UNIT_TEST_INSTRUCTIONS: u64 = 1_000_000;
 pub struct Test {
     #[clap(flatten)]
     pub test: test::Test,
-    /// If `true`, enable linters
+    /// If `true`, disable linters
     #[clap(long, global = true)]
-    pub lint: bool,
+    pub no_lint: bool,
 }
 
 impl Test {
@@ -58,7 +58,7 @@ impl Test {
             with_unpublished_deps,
             dump_bytecode_as_base64,
             generate_struct_layouts,
-            self.lint,
+            !self.no_lint,
         )?;
         run_move_unit_tests(
             rerooted_path,
@@ -77,6 +77,15 @@ impl ChildObjectResolver for DummyChildObjectStore {
         _parent: &ObjectID,
         _child: &ObjectID,
         _child_version_upper_bound: SequenceNumber,
+    ) -> SuiResult<Option<Object>> {
+        Ok(None)
+    }
+    fn get_object_received_at_version(
+        &self,
+        _owner: &ObjectID,
+        _receiving_object_id: &ObjectID,
+        _receive_object_at_version: SequenceNumber,
+        _epoch_id: sui_types::committee::EpochId,
     ) -> SuiResult<Option<Object>> {
         Ok(None)
     }
@@ -106,7 +115,6 @@ pub fn run_move_unit_tests(
         build_config,
         UnitTestingConfig {
             report_stacktrace_on_abort: true,
-            ignore_compile_warnings: true,
             ..config
         },
         sui_move_natives::all_natives(/* silent */ false),
@@ -127,10 +135,11 @@ fn new_testing_object_and_natives_cost_runtime(ext: &mut NativeContextExtensions
         store,
         BTreeMap::new(),
         false,
-        &ProtocolConfig::get_for_min_version(),
+        &ProtocolConfig::get_for_max_version_UNSAFE(),
         metrics,
+        0, // epoch id
     ));
     ext.add(NativesCostTable::from_protocol_config(
-        &ProtocolConfig::get_for_min_version(),
+        &ProtocolConfig::get_for_max_version_UNSAFE(),
     ));
 }

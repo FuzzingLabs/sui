@@ -1,23 +1,24 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { getFullnodeUrl, SuiClient, SuiClientOptions } from '@mysten/sui.js/client';
+import { TransactionBlock } from '@mysten/sui.js/transactions';
+import { useWalletKit } from '@mysten/wallet-kit';
+import { useMutation } from '@tanstack/react-query';
+import { AlertCircle, Terminal } from 'lucide-react';
+import { useState } from 'react';
+
 import { ConnectWallet } from '@/components/connect';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { TransactionBlock } from '@mysten/sui.js/transactions';
-import { SuiClient, SuiClientOptions, getFullnodeUrl } from '@mysten/sui.js/client';
-import { useWalletKit } from '@mysten/wallet-kit';
-import { AlertCircle, Terminal } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
 
 export default function OfflineSigner() {
 	const { currentAccount, signTransactionBlock } = useWalletKit();
 	const [tab, setTab] = useState<'transaction' | 'signature'>('transaction');
 	const [bytes, setBytes] = useState('');
-	const { mutate, data, isLoading } = useMutation({
+	const { mutate, data, isPending } = useMutation({
 		mutationKey: ['sign'],
 		mutationFn: async () => {
 			const transactionBlock = TransactionBlock.from(bytes);
@@ -39,7 +40,7 @@ export default function OfflineSigner() {
 	const {
 		mutate: dryRun,
 		data: dryRunData,
-		isLoading: dryRunLoading,
+		isPending: dryRunLoading,
 		error,
 		reset,
 	} = useMutation({
@@ -92,7 +93,7 @@ export default function OfflineSigner() {
 						<Textarea value={bytes} onChange={(e) => setBytes(e.target.value)} />
 						<div className="flex gap-4">
 							<ConnectWallet />
-							<Button disabled={!currentAccount || !bytes || isLoading} onClick={() => mutate()}>
+							<Button disabled={!currentAccount || !bytes || isPending} onClick={() => mutate()}>
 								Sign Transaction
 							</Button>
 							<Button

@@ -11,6 +11,7 @@ use crate::crypto::{
     ToFromBytes,
 };
 use crate::digests::{CertificateDigest, SenderSignedDataDigest};
+use crate::execution::{DeletedSharedObjects, SharedInput};
 use crate::message_envelope::{
     AuthenticatedMessage, Envelope, Message, TrustedEnvelope, VerifiedEnvelope,
 };
@@ -45,7 +46,7 @@ use tracing::trace;
 
 pub const TEST_ONLY_GAS_UNIT_FOR_TRANSFER: u64 = 10_000;
 pub const TEST_ONLY_GAS_UNIT_FOR_OBJECT_BASICS: u64 = 50_000;
-pub const TEST_ONLY_GAS_UNIT_FOR_PUBLISH: u64 = 50_000;
+pub const TEST_ONLY_GAS_UNIT_FOR_PUBLISH: u64 = 70_000;
 pub const TEST_ONLY_GAS_UNIT_FOR_STAKING: u64 = 50_000;
 pub const TEST_ONLY_GAS_UNIT_FOR_GENERIC: u64 = 50_000;
 pub const TEST_ONLY_GAS_UNIT_FOR_SPLIT_COIN: u64 = 10_000;
@@ -99,6 +100,8 @@ pub enum ObjectArg {
         initial_shared_version: SequenceNumber,
         mutable: bool,
     },
+    // A Move object that can be received in this transaction.
+    Receiving(ObjectRef),
 }
 
 fn type_tag_validity_check(
@@ -343,8 +346,26 @@ impl VersionedProtocolMessage for TransactionKind {
         match &self {
             TransactionKind::ChangeEpoch(_)
             | TransactionKind::Genesis(_)
-            | TransactionKind::ConsensusCommitPrologue(_)
-            | TransactionKind::ProgrammableTransaction(_) => Ok(()),
+            | TransactionKind::ConsensusCommitPrologue(_) => Ok(()),
+            TransactionKind::ProgrammableTransaction(pt) => {
+                // NB: we don't use the `receiving_objects` method here since we don't want to check
+                // for any validity requirements such as duplicate receiving inputs at this point.
+                if !protocol_config.receiving_objects_supported() {
+                    let has_receiving_objects = pt
+                        .inputs
+                        .iter()
+                        .any(|arg| !arg.receiving_objects().is_empty());
+                    if has_receiving_objects {
+                        return Err(SuiError::UnsupportedFeatureError {
+                            error: format!(
+                                "receiving objects is not supported at {:?}",
+                                protocol_config.version
+                            ),
+                        });
+                    }
+                }
+                Ok(())
+            }
             TransactionKind::AuthenticatorStateUpdate(_) => {
                 if protocol_config.enable_jwk_consensus_updates() {
                     Ok(())
@@ -403,6 +424,19 @@ impl CallArg {
                     mutable,
                 }]
             }
+            // Receiving objects are not part of the input objects.
+            CallArg::Object(ObjectArg::Receiving(_)) => vec![],
+        }
+    }
+
+    fn receiving_objects(&self) -> Vec<ObjectRef> {
+        match self {
+            CallArg::Pure(_) => vec![],
+            CallArg::Object(o) => match o {
+                ObjectArg::ImmOrOwnedObject(_) => vec![],
+                ObjectArg::SharedObject { .. } => vec![],
+                ObjectArg::Receiving(obj_ref) => vec![*obj_ref],
+            },
         }
     }
 
@@ -487,7 +521,9 @@ impl ObjectArg {
 
     pub fn id(&self) -> ObjectID {
         match self {
-            ObjectArg::ImmOrOwnedObject((id, _, _)) | ObjectArg::SharedObject { id, .. } => *id,
+            ObjectArg::Receiving((id, _, _))
+            | ObjectArg::ImmOrOwnedObject((id, _, _))
+            | ObjectArg::SharedObject { id, .. } => *id,
         }
     }
 }
@@ -799,6 +835,14 @@ impl ProgrammableTransaction {
             .collect())
     }
 
+    fn receiving_objects(&self) -> Vec<ObjectRef> {
+        let ProgrammableTransaction { inputs, .. } = self;
+        inputs
+            .iter()
+            .flat_map(|arg| arg.receiving_objects())
+            .collect()
+    }
+
     fn validity_check(&self, config: &ProtocolConfig) -> UserInputResult {
         let ProgrammableTransaction { inputs, commands } = self;
         fp_ensure!(
@@ -835,7 +879,9 @@ impl ProgrammableTransaction {
         self.inputs
             .iter()
             .filter_map(|arg| match arg {
-                CallArg::Pure(_) | CallArg::Object(ObjectArg::ImmOrOwnedObject(_)) => None,
+                CallArg::Pure(_)
+                | CallArg::Object(ObjectArg::Receiving(_))
+                | CallArg::Object(ObjectArg::ImmOrOwnedObject(_)) => None,
                 CallArg::Object(ObjectArg::SharedObject {
                     id,
                     initial_shared_version,
@@ -1071,6 +1117,17 @@ impl TransactionKind {
         match &self {
             Self::ProgrammableTransaction(pt) => pt.move_calls(),
             _ => vec![],
+        }
+    }
+
+    pub fn receiving_objects(&self) -> Vec<ObjectRef> {
+        match &self {
+            TransactionKind::ChangeEpoch(_)
+            | TransactionKind::Genesis(_)
+            | TransactionKind::ConsensusCommitPrologue(_)
+            | TransactionKind::AuthenticatorStateUpdate(_)
+            | TransactionKind::EndOfEpochTransaction(_) => vec![],
+            TransactionKind::ProgrammableTransaction(pt) => pt.receiving_objects(),
         }
     }
 
@@ -1683,6 +1740,8 @@ pub trait TransactionDataAPI {
 
     fn input_objects(&self) -> UserInputResult<Vec<InputObjectKind>>;
 
+    fn receiving_objects(&self) -> Vec<ObjectRef>;
+
     fn validity_check(&self, config: &ProtocolConfig) -> UserInputResult;
 
     fn validity_check_no_gas_check(&self, config: &ProtocolConfig) -> UserInputResult;
@@ -1691,7 +1750,6 @@ pub trait TransactionDataAPI {
     fn check_sponsorship(&self) -> UserInputResult;
 
     fn is_system_tx(&self) -> bool;
-    fn is_change_epoch_tx(&self) -> bool;
     fn is_genesis_tx(&self) -> bool;
 
     /// returns true if the transaction is one that is specially sequenced to run at the very end
@@ -1786,6 +1844,10 @@ impl TransactionDataAPI for TransactionDataV1 {
         Ok(inputs)
     }
 
+    fn receiving_objects(&self) -> Vec<ObjectRef> {
+        self.kind.receiving_objects()
+    }
+
     fn validity_check(&self, config: &ProtocolConfig) -> UserInputResult {
         fp_ensure!(!self.gas().is_empty(), UserInputError::MissingGasPayment);
         fp_ensure!(
@@ -1822,12 +1884,11 @@ impl TransactionDataAPI for TransactionDataV1 {
         Err(UserInputError::UnsupportedSponsoredTransactionKind)
     }
 
-    fn is_change_epoch_tx(&self) -> bool {
-        matches!(self.kind, TransactionKind::ChangeEpoch(_))
-    }
-
     fn is_end_of_epoch_tx(&self) -> bool {
-        self.is_change_epoch_tx() || matches!(self.kind, TransactionKind::EndOfEpochTransaction(_))
+        matches!(
+            self.kind,
+            TransactionKind::ChangeEpoch(_) | TransactionKind::EndOfEpochTransaction(_)
+        )
     }
 
     fn is_system_tx(&self) -> bool {
@@ -1912,9 +1973,18 @@ impl SenderSignedData {
         self.inner_mut().tx_signatures.push(new_signature.into());
     }
 
-    fn get_signer_sig_mapping(&self) -> SuiResult<BTreeMap<SuiAddress, &GenericSignature>> {
+    fn get_signer_sig_mapping(
+        &self,
+        verify_legacy_zklogin_address: bool,
+    ) -> SuiResult<BTreeMap<SuiAddress, &GenericSignature>> {
         let mut mapping = BTreeMap::new();
         for sig in &self.inner().tx_signatures {
+            if verify_legacy_zklogin_address {
+                // Try deriving the address from the legacy way.
+                if let GenericSignature::ZkLoginAuthenticator(z) = sig {
+                    mapping.insert(SuiAddress::legacy_try_from(z)?, sig);
+                };
+            }
             let address = sig.try_into()?;
             mapping.insert(address, sig);
         }
@@ -2012,6 +2082,15 @@ impl Message for SenderSignedData {
 }
 
 impl AuthenticatedMessage for SenderSignedData {
+    // Checks that are required to be done outside cache.
+    fn verify_uncached_checks(&self, verify_params: &VerifyParams) -> SuiResult {
+        for (signer, signature) in
+            self.get_signer_sig_mapping(verify_params.verify_legacy_zklogin_address)?
+        {
+            signature.verify_uncached_checks(self.intent_message(), signer, verify_params)?;
+        }
+        Ok(())
+    }
     fn verify_message_signature(&self, verify_params: &VerifyParams) -> SuiResult {
         fp_ensure!(
             self.0.len() == 1,
@@ -2036,11 +2115,13 @@ impl AuthenticatedMessage for SenderSignedData {
             }
         );
         // All required signers need to be sign.
-        let present_sigs = self.get_signer_sig_mapping()?;
+        let present_sigs =
+            self.get_signer_sig_mapping(verify_params.verify_legacy_zklogin_address)?;
         for s in signers {
             if !present_sigs.contains_key(&s) {
                 return Err(SuiError::SignerSignatureAbsent {
-                    signer: s.to_string(),
+                    expected: s.to_string(),
+                    actual: present_sigs.keys().map(|s| s.to_string()).collect(),
                 });
             }
         }
@@ -2331,19 +2412,24 @@ impl InputObjectKind {
 #[derive(Clone)]
 pub struct InputObjects {
     objects: Vec<(InputObjectKind, Object)>,
+    deleted: DeletedSharedObjects,
 }
 
 impl InputObjects {
-    pub fn new(objects: Vec<(InputObjectKind, Object)>) -> Self {
-        Self { objects }
+    pub fn new(objects: Vec<(InputObjectKind, Object)>, deleted: DeletedSharedObjects) -> Self {
+        Self { objects, deleted }
     }
 
     pub fn len(&self) -> usize {
-        self.objects.len()
+        self.objects.len() + self.deleted.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.objects.is_empty()
+        self.objects.is_empty() && self.deleted.is_empty()
+    }
+
+    pub fn contains_deleted_objects(&self) -> bool {
+        !self.deleted.is_empty()
     }
 
     pub fn filter_owned_objects(&self) -> Vec<ObjectRef> {
@@ -2371,19 +2457,27 @@ impl InputObjects {
         owned_objects
     }
 
-    pub fn filter_shared_objects(&self) -> Vec<ObjectRef> {
+    pub fn filter_shared_objects(&self) -> Vec<SharedInput> {
         self.objects
             .iter()
             .filter(|(kind, _)| matches!(kind, InputObjectKind::SharedMoveObject { .. }))
-            .map(|(_, obj)| obj.compute_object_reference())
+            .map(|(_, obj)| SharedInput::Existing(obj.compute_object_reference()))
+            .chain(self.deleted.iter().map(|info| SharedInput::Deleted(*info)))
             .collect()
     }
 
     pub fn transaction_dependencies(&self) -> BTreeSet<TransactionDigest> {
-        self.objects
+        let mut dependencies: BTreeSet<TransactionDigest> = self
+            .objects
             .iter()
             .map(|(_, obj)| obj.previous_transaction)
-            .collect()
+            .collect();
+
+        for (_, _, _, digest) in &self.deleted {
+            dependencies.insert(*digest);
+        }
+
+        dependencies
     }
 
     pub fn mutable_inputs(&self) -> BTreeMap<ObjectID, (VersionDigest, Owner)> {
@@ -2411,18 +2505,25 @@ impl InputObjects {
     }
 
     /// The version to set on objects created by the computation that `self` is input to.
-    /// Guaranteed to be strictly greater than the versions of all input objects.
-    pub fn lamport_timestamp(&self) -> SequenceNumber {
+    /// Guaranteed to be strictly greater than the versions of all input objects and objects
+    /// received in the transaction.
+    pub fn lamport_timestamp(&self, receiving_objects: &[ObjectRef]) -> SequenceNumber {
         let input_versions = self
             .objects
             .iter()
-            .filter_map(|(_, object)| object.data.try_as_move().map(MoveObject::version));
+            .filter_map(|(_, object)| object.data.try_as_move().map(MoveObject::version))
+            .chain(receiving_objects.iter().map(|object_ref| object_ref.1))
+            .chain(self.deleted.iter().map(|(_, version, _, _)| *version));
 
         SequenceNumber::lamport_increment(input_versions)
     }
 
     pub fn into_objects(self) -> Vec<(InputObjectKind, Object)> {
         self.objects
+    }
+
+    pub fn object_kinds(&self) -> impl Iterator<Item = &InputObjectKind> {
+        self.objects.iter().map(|(kind, _)| kind)
     }
 
     pub fn into_object_map(self) -> BTreeMap<ObjectID, Object> {

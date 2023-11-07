@@ -1,27 +1,37 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SuiSignPersonalMessageInput } from '@mysten/wallet-standard';
-import type { SuiSignPersonalMessageOutput } from '@mysten/wallet-standard';
-import type { UseMutationOptions } from '@tanstack/react-query';
+import type {
+	SuiSignPersonalMessageInput,
+	SuiSignPersonalMessageOutput,
+} from '@mysten/wallet-standard';
+import type { UseMutationOptions, UseMutationResult } from '@tanstack/react-query';
 import { useMutation } from '@tanstack/react-query';
-import { walletMutationKeys } from '../../constants/walletMutationKeys.js';
+
 import {
 	WalletFeatureNotSupportedError,
 	WalletNoAccountSelectedError,
 	WalletNotConnectedError,
 } from '../..//errors/walletErrors.js';
+import { walletMutationKeys } from '../../constants/walletMutationKeys.js';
 import type { PartialBy } from '../../types/utilityTypes.js';
 import { useCurrentAccount } from './useCurrentAccount.js';
 import { useCurrentWallet } from './useCurrentWallet.js';
 
 type UseSignPersonalMessageArgs = PartialBy<SuiSignPersonalMessageInput, 'account'>;
+
 type UseSignPersonalMessageResult = SuiSignPersonalMessageOutput;
+
+type UseSignPersonalMessageError =
+	| WalletFeatureNotSupportedError
+	| WalletNoAccountSelectedError
+	| WalletNotConnectedError
+	| Error;
 
 type UseSignPersonalMessageMutationOptions = Omit<
 	UseMutationOptions<
 		UseSignPersonalMessageResult,
-		WalletFeatureNotSupportedError | WalletNoAccountSelectedError | WalletNotConnectedError | Error,
+		UseSignPersonalMessageError,
 		UseSignPersonalMessageArgs,
 		unknown
 	>,
@@ -34,8 +44,12 @@ type UseSignPersonalMessageMutationOptions = Omit<
 export function useSignPersonalMessage({
 	mutationKey,
 	...mutationOptions
-}: UseSignPersonalMessageMutationOptions = {}) {
-	const currentWallet = useCurrentWallet();
+}: UseSignPersonalMessageMutationOptions = {}): UseMutationResult<
+	UseSignPersonalMessageResult,
+	UseSignPersonalMessageError,
+	UseSignPersonalMessageArgs
+> {
+	const { currentWallet } = useCurrentWallet();
 	const currentAccount = useCurrentAccount();
 
 	return useMutation({

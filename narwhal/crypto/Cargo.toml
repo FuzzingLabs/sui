@@ -8,10 +8,11 @@ publish = false
 
 [dependencies]
 fastcrypto.workspace = true
-workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
+fastcrypto-tbls.workspace = true
 serde.workspace = true
 shared-crypto.workspace = true
 bcs.workspace = true
+workspace-hack.workspace = true
 
 [features]
 default = []

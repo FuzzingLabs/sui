@@ -1,27 +1,37 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SuiSignTransactionBlockInput } from '@mysten/wallet-standard';
-import type { SuiSignTransactionBlockOutput } from '@mysten/wallet-standard';
-import type { UseMutationOptions } from '@tanstack/react-query';
+import type {
+	SuiSignTransactionBlockInput,
+	SuiSignTransactionBlockOutput,
+} from '@mysten/wallet-standard';
+import type { UseMutationOptions, UseMutationResult } from '@tanstack/react-query';
 import { useMutation } from '@tanstack/react-query';
-import { walletMutationKeys } from '../../constants/walletMutationKeys.js';
+
 import {
 	WalletFeatureNotSupportedError,
 	WalletNoAccountSelectedError,
 	WalletNotConnectedError,
 } from '../..//errors/walletErrors.js';
+import { walletMutationKeys } from '../../constants/walletMutationKeys.js';
 import type { PartialBy } from '../../types/utilityTypes.js';
 import { useCurrentAccount } from './useCurrentAccount.js';
 import { useCurrentWallet } from './useCurrentWallet.js';
 
-type UseSignTransactionBlockArgs = PartialBy<SuiSignTransactionBlockInput, 'account'>;
+type UseSignTransactionBlockArgs = PartialBy<SuiSignTransactionBlockInput, 'account' | 'chain'>;
+
 type UseSignTransactionBlockResult = SuiSignTransactionBlockOutput;
+
+type UseSignTransactionBlockError =
+	| WalletFeatureNotSupportedError
+	| WalletNoAccountSelectedError
+	| WalletNotConnectedError
+	| Error;
 
 type UseSignTransactionBlockMutationOptions = Omit<
 	UseMutationOptions<
 		UseSignTransactionBlockResult,
-		WalletFeatureNotSupportedError | WalletNoAccountSelectedError | WalletNotConnectedError | Error,
+		UseSignTransactionBlockError,
 		UseSignTransactionBlockArgs,
 		unknown
 	>,
@@ -34,8 +44,12 @@ type UseSignTransactionBlockMutationOptions = Omit<
 export function useSignTransactionBlock({
 	mutationKey,
 	...mutationOptions
-}: UseSignTransactionBlockMutationOptions = {}) {
-	const currentWallet = useCurrentWallet();
+}: UseSignTransactionBlockMutationOptions = {}): UseMutationResult<
+	UseSignTransactionBlockResult,
+	UseSignTransactionBlockError,
+	UseSignTransactionBlockArgs
+> {
+	const { currentWallet } = useCurrentWallet();
 	const currentAccount = useCurrentAccount();
 
 	return useMutation({
@@ -48,7 +62,7 @@ export function useSignTransactionBlock({
 			const signerAccount = signTransactionBlockArgs.account ?? currentAccount;
 			if (!signerAccount) {
 				throw new WalletNoAccountSelectedError(
-					'No wallet account is selected to sign the personal message with.',
+					'No wallet account is selected to sign the transaction block with.',
 				);
 			}
 
@@ -62,6 +76,7 @@ export function useSignTransactionBlock({
 			return await walletFeature.signTransactionBlock({
 				...signTransactionBlockArgs,
 				account: signerAccount,
+				chain: signTransactionBlockArgs.chain ?? signerAccount.chains[0],
 			});
 		},
 		...mutationOptions,

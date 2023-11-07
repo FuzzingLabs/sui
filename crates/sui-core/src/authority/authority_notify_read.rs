@@ -14,7 +14,7 @@ use sui_types::base_types::{TransactionDigest, TransactionEffectsDigest};
 use sui_types::effects::TransactionEffects;
 use sui_types::effects::TransactionEffectsAPI;
 use sui_types::error::SuiResult;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 #[async_trait]
 pub trait EffectsNotifyRead: Send + Sync + 'static {
@@ -42,6 +42,7 @@ pub trait EffectsNotifyRead: Send + Sync + 'static {
 
 #[async_trait]
 impl EffectsNotifyRead for Arc<AuthorityStore> {
+    #[instrument(level = "trace", skip_all)]
     async fn notify_read_executed_effects(
         &self,
         digests: Vec<TransactionDigest>,
@@ -55,7 +56,7 @@ impl EffectsNotifyRead for Arc<AuthorityStore> {
         let mut needs_wait = false;
         let mut results: FuturesUnordered<_> = effects
             .into_iter()
-            .zip(registrations.into_iter())
+            .zip(registrations)
             .map(|(e, r)| match e {
                 // Note that Some() clause also drops registration that is already fulfilled
                 Some(ready) => Either::Left(futures::future::ready(ready)),
@@ -87,6 +88,7 @@ impl EffectsNotifyRead for Arc<AuthorityStore> {
             .collect())
     }
 
+    #[instrument(level = "trace", skip_all)]
     async fn notify_read_executed_effects_digests(
         &self,
         digests: Vec<TransactionDigest>,
@@ -100,7 +102,7 @@ impl EffectsNotifyRead for Arc<AuthorityStore> {
 
         let results = effects_digests
             .into_iter()
-            .zip(registrations.into_iter())
+            .zip(registrations)
             .map(|(a, r)| match a {
                 // Note that Some() clause also drops registration that is already fulfilled
                 Some(ready) => Either::Left(futures::future::ready(ready)),
@@ -110,6 +112,7 @@ impl EffectsNotifyRead for Arc<AuthorityStore> {
         Ok(join_all(results).await)
     }
 
+    #[instrument(level = "trace", skip_all)]
     fn multi_get_executed_effects(
         &self,
         digests: &[TransactionDigest],

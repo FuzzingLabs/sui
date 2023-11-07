@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::transfer::{object_is_shared, E_SHARED_OBJECT_OPERATION_NOT_SUPPORTED};
 use crate::{
     get_nested_struct_field, get_object_id,
     object_runtime::{object_store::ObjectResult, ObjectRuntime},
@@ -11,7 +12,6 @@ use move_core_types::{
     account_address::AccountAddress,
     gas_algebra::InternalGas,
     language_storage::{StructTag, TypeTag},
-    value::MoveTypeLayout,
     vm_status::StatusCode,
 };
 use move_vm_runtime::native_charge_gas_early_exit;
@@ -39,7 +39,8 @@ macro_rules! get_or_fetch_object {
         );
 
         assert!($ty_args.is_empty());
-        let (tag, layout, annotated_layout) = match get_tag_and_layouts($context, &child_ty)? {
+        let (tag, layout, annotated_layout) = match crate::get_tag_and_layouts($context, &child_ty)?
+        {
             Some(res) => res,
             None => {
                 return Ok(NativeResult::err(
@@ -131,16 +132,10 @@ pub fn hash_type_and_key(
         _ => return Ok(NativeResult::err(cost, E_BCS_SERIALIZATION_FAILURE)),
     };
     let Some(k_bytes) = k.simple_serialize(&k_layout) else {
-        return Ok(NativeResult::err(
-            cost,
-            E_BCS_SERIALIZATION_FAILURE,
-        ))
+        return Ok(NativeResult::err(cost, E_BCS_SERIALIZATION_FAILURE));
     };
     let Ok(id) = derive_dynamic_field_id(parent, &k_tag, &k_bytes) else {
-        return Ok(NativeResult::err(
-            cost,
-            E_BCS_SERIALIZATION_FAILURE,
-        ));
+        return Ok(NativeResult::err(cost, E_BCS_SERIALIZATION_FAILURE));
     };
 
     Ok(NativeResult::ok(cost, smallvec![Value::address(id.into())]))
@@ -230,6 +225,13 @@ pub fn add_child_object(
             .dynamic_field_add_child_object_struct_tag_cost_per_byte
             * struct_tag_size.into()
     );
+
+    if object_is_shared(context, &child)? {
+        return Ok(NativeResult::err(
+            context.gas_used(),
+            E_SHARED_OBJECT_OPERATION_NOT_SUPPORTED,
+        ));
+    }
 
     let object_runtime: &mut ObjectRuntime = context.extensions_mut().get_mut();
     object_runtime.add_child_object(
@@ -496,26 +498,4 @@ pub fn has_child_object_with_ty(
         context.gas_used(),
         smallvec![Value::bool(has_child)],
     ))
-}
-
-fn get_tag_and_layouts(
-    context: &NativeContext,
-    ty: &Type,
-) -> PartialVMResult<Option<(StructTag, MoveTypeLayout, MoveTypeLayout)>> {
-    let tag = match context.type_to_type_tag(ty)? {
-        TypeTag::Struct(s) => s,
-        _ => {
-            return Err(
-                PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                    .with_message("Sui verifier guarantees this is a struct".to_string()),
-            )
-        }
-    };
-    let Some(layout) = context.type_to_type_layout(ty)? else {
-        return Ok(None)
-    };
-    let Some(annotated_layout) = context.type_to_fully_annotated_layout(ty)? else {
-        return Ok(None)
-    };
-    Ok(Some((*tag, layout, annotated_layout)))
 }
