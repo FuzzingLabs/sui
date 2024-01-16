@@ -80,7 +80,7 @@ pub async fn test_certificates(authority: &AuthorityState) -> Vec<CertifiedTrans
         )
         .unwrap();
 
-        let transaction = authority
+        let transaction = epoch_store
             .verify_transaction(to_sender_signed_transaction(data, &keypair))
             .unwrap();
 
@@ -136,9 +136,9 @@ async fn submit_transaction_to_consensus_adapter() {
     }
     // Make a new consensus adapter instance.
     let adapter = Arc::new(ConsensusAdapter::new(
-        Box::new(SubmitDirectly(state.clone())),
+        Arc::new(SubmitDirectly(state.clone())),
         state.name,
-        Box::new(Arc::new(ConnectionMonitorStatusForTests {})),
+        Arc::new(ConnectionMonitorStatusForTests {}),
         100_000,
         100_000,
         None,

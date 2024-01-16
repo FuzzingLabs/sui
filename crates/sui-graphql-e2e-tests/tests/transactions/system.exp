@@ -1,0 +1,1523 @@
+processed 8 tasks
+
+task 1 'run-graphql'. lines 8-102:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "7pmUhaENwwVedRTDm9RxJdphHp1nqLguWUfXtS6SXoRA",
+          "sender": null,
+          "signatures": [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "gasPayment": {
+              "nodes": []
+            },
+            "gasPrice": "1",
+            "gasBudget": "0"
+          },
+          "kind": {
+            "__typename": "GenesisTransaction",
+            "objects": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "asMoveObject": null,
+                    "asMovePackage": {
+                      "modules": {
+                        "edges": [
+                          {
+                            "cursor": "ImFkZHJlc3Mi",
+                            "node": {
+                              "name": "address"
+                            }
+                          },
+                          {
+                            "cursor": "ImFzY2lpIg",
+                            "node": {
+                              "name": "ascii"
+                            }
+                          },
+                          {
+                            "cursor": "ImJjcyI",
+                            "node": {
+                              "name": "bcs"
+                            }
+                          },
+                          {
+                            "cursor": "ImJpdF92ZWN0b3Ii",
+                            "node": {
+                              "name": "bit_vector"
+                            }
+                          },
+                          {
+                            "cursor": "ImRlYnVnIg",
+                            "node": {
+                              "name": "debug"
+                            }
+                          },
+                          {
+                            "cursor": "ImZpeGVkX3BvaW50MzIi",
+                            "node": {
+                              "name": "fixed_point32"
+                            }
+                          },
+                          {
+                            "cursor": "Imhhc2gi",
+                            "node": {
+                              "name": "hash"
+                            }
+                          },
+                          {
+                            "cursor": "Im9wdGlvbiI",
+                            "node": {
+                              "name": "option"
+                            }
+                          },
+                          {
+                            "cursor": "InN0cmluZyI",
+                            "node": {
+                              "name": "string"
+                            }
+                          },
+                          {
+                            "cursor": "InR5cGVfbmFtZSI",
+                            "node": {
+                              "name": "type_name"
+                            }
+                          },
+                          {
+                            "cursor": "InZlY3RvciI",
+                            "node": {
+                              "name": "vector"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "asMoveObject": null,
+                    "asMovePackage": {
+                      "modules": {
+                        "edges": [
+                          {
+                            "cursor": "ImFkZHJlc3Mi",
+                            "node": {
+                              "name": "address"
+                            }
+                          },
+                          {
+                            "cursor": "ImF1dGhlbnRpY2F0b3Jfc3RhdGUi",
+                            "node": {
+                              "name": "authenticator_state"
+                            }
+                          },
+                          {
+                            "cursor": "ImJhZyI",
+                            "node": {
+                              "name": "bag"
+                            }
+                          },
+                          {
+                            "cursor": "ImJhbGFuY2Ui",
+                            "node": {
+                              "name": "balance"
+                            }
+                          },
+                          {
+                            "cursor": "ImJjcyI",
+                            "node": {
+                              "name": "bcs"
+                            }
+                          },
+                          {
+                            "cursor": "ImJsczEyMzgxIg",
+                            "node": {
+                              "name": "bls12381"
+                            }
+                          },
+                          {
+                            "cursor": "ImJvcnJvdyI",
+                            "node": {
+                              "name": "borrow"
+                            }
+                          },
+                          {
+                            "cursor": "ImNsb2NrIg",
+                            "node": {
+                              "name": "clock"
+                            }
+                          },
+                          {
+                            "cursor": "ImNvaW4i",
+                            "node": {
+                              "name": "coin"
+                            }
+                          },
+                          {
+                            "cursor": "ImRlbnlfbGlzdCI",
+                            "node": {
+                              "name": "deny_list"
+                            }
+                          },
+                          {
+                            "cursor": "ImRpc3BsYXki",
+                            "node": {
+                              "name": "display"
+                            }
+                          },
+                          {
+                            "cursor": "ImR5bmFtaWNfZmllbGQi",
+                            "node": {
+                              "name": "dynamic_field"
+                            }
+                          },
+                          {
+                            "cursor": "ImR5bmFtaWNfb2JqZWN0X2ZpZWxkIg",
+                            "node": {
+                              "name": "dynamic_object_field"
+                            }
+                          },
+                          {
+                            "cursor": "ImVjZHNhX2sxIg",
+                            "node": {
+                              "name": "ecdsa_k1"
+                            }
+                          },
+                          {
+                            "cursor": "ImVjZHNhX3IxIg",
+                            "node": {
+                              "name": "ecdsa_r1"
+                            }
+                          },
+                          {
+                            "cursor": "ImVjdnJmIg",
+                            "node": {
+                              "name": "ecvrf"
+                            }
+                          },
+                          {
+                            "cursor": "ImVkMjU1MTki",
+                            "node": {
+                              "name": "ed25519"
+                            }
+                          },
+                          {
+                            "cursor": "ImV2ZW50Ig",
+                            "node": {
+                              "name": "event"
+                            }
+                          },
+                          {
+                            "cursor": "Imdyb3RoMTYi",
+                            "node": {
+                              "name": "groth16"
+                            }
+                          },
+                          {
+                            "cursor": "Imhhc2gi",
+                            "node": {
+                              "name": "hash"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "cursor": "Mg",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000003",
+                    "asMoveObject": null,
+                    "asMovePackage": {
+                      "modules": {
+                        "edges": [
+                          {
+                            "cursor": "ImdlbmVzaXMi",
+                            "node": {
+                              "name": "genesis"
+                            }
+                          },
+                          {
+                            "cursor": "InN0YWtlX3N1YnNpZHki",
+                            "node": {
+                              "name": "stake_subsidy"
+                            }
+                          },
+                          {
+                            "cursor": "InN0YWtpbmdfcG9vbCI",
+                            "node": {
+                              "name": "staking_pool"
+                            }
+                          },
+                          {
+                            "cursor": "InN0b3JhZ2VfZnVuZCI",
+                            "node": {
+                              "name": "storage_fund"
+                            }
+                          },
+                          {
+                            "cursor": "InN1aV9zeXN0ZW0i",
+                            "node": {
+                              "name": "sui_system"
+                            }
+                          },
+                          {
+                            "cursor": "InN1aV9zeXN0ZW1fc3RhdGVfaW5uZXIi",
+                            "node": {
+                              "name": "sui_system_state_inner"
+                            }
+                          },
+                          {
+                            "cursor": "InZhbGlkYXRvciI",
+                            "node": {
+                              "name": "validator"
+                            }
+                          },
+                          {
+                            "cursor": "InZhbGlkYXRvcl9jYXAi",
+                            "node": {
+                              "name": "validator_cap"
+                            }
+                          },
+                          {
+                            "cursor": "InZhbGlkYXRvcl9zZXQi",
+                            "node": {
+                              "name": "validator_set"
+                            }
+                          },
+                          {
+                            "cursor": "InZhbGlkYXRvcl93cmFwcGVyIg",
+                            "node": {
+                              "name": "validator_wrapper"
+                            }
+                          },
+                          {
+                            "cursor": "InZvdGluZ19wb3dlciI",
+                            "node": {
+                              "name": "voting_power"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "cursor": "Mw",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000003::sui_system::SuiSystemState"
+                        },
+                        "json": {
+                          "id": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                          "version": "1"
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "NA",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock"
+                        },
+                        "json": {
+                          "id": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                          "timestamp_ms": "0"
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "NQ",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000007",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::authenticator_state::AuthenticatorState"
+                        },
+                        "json": {
+                          "id": "0x0000000000000000000000000000000000000000000000000000000000000007",
+                          "version": "1"
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "Ng",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000008",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::random::Random"
+                        },
+                        "json": {
+                          "id": "0x0000000000000000000000000000000000000000000000000000000000000008",
+                          "inner": {
+                            "id": "0xf75132272c094db25adb7bba837088609632652d1066280e086ff4023b51f079",
+                            "version": "1"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "Nw",
+                  "node": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000403",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::deny_list::DenyList"
+                        },
+                        "json": {
+                          "id": "0x0000000000000000000000000000000000000000000000000000000000000403",
+                          "lists": {
+                            "id": "0x14bb9295503f3cc2ba85519e03dfe41609089502d49fd412482e273de2ee7c22",
+                            "size": "1"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "OA",
+                  "node": {
+                    "address": "0x000000000000000000000000000000000000000000000000000000000000dee9",
+                    "asMoveObject": null,
+                    "asMovePackage": {
+                      "modules": {
+                        "edges": [
+                          {
+                            "cursor": "ImNsb2Ii",
+                            "node": {
+                              "name": "clob"
+                            }
+                          },
+                          {
+                            "cursor": "ImNsb2JfdjIi",
+                            "node": {
+                              "name": "clob_v2"
+                            }
+                          },
+                          {
+                            "cursor": "ImNyaXRiaXQi",
+                            "node": {
+                              "name": "critbit"
+                            }
+                          },
+                          {
+                            "cursor": "ImN1c3RvZGlhbiI",
+                            "node": {
+                              "name": "custodian"
+                            }
+                          },
+                          {
+                            "cursor": "ImN1c3RvZGlhbl92MiI",
+                            "node": {
+                              "name": "custodian_v2"
+                            }
+                          },
+                          {
+                            "cursor": "Im1hdGgi",
+                            "node": {
+                              "name": "math"
+                            }
+                          },
+                          {
+                            "cursor": "Im9yZGVyX3F1ZXJ5Ig",
+                            "node": {
+                              "name": "order_query"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "cursor": "OQ",
+                  "node": {
+                    "address": "0x011bb2206e3ef57d81e7571b19055c1144991639a379e1f9fc907496f0df4c26",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000003::validator_cap::UnverifiedValidatorOperationCap"
+                        },
+                        "json": {
+                          "id": "0x011bb2206e3ef57d81e7571b19055c1144991639a379e1f9fc907496f0df4c26",
+                          "authorizer_validator_address": "0xa7b032703878aa74c3126935789fd1d4d7e111d5911b09247d6963061c312b5a"
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTA",
+                  "node": {
+                    "address": "0x157d82f4e65f1b1f6158f9cd328a08fb2a31612e30783fc3e5b497b9bccb2579",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<u64,0x0000000000000000000000000000000000000000000000000000000000000002::random::RandomInner>"
+                        },
+                        "json": {
+                          "id": "0x157d82f4e65f1b1f6158f9cd328a08fb2a31612e30783fc3e5b497b9bccb2579",
+                          "name": "1",
+                          "value": {
+                            "version": "1",
+                            "epoch": "0",
+                            "randomness_round": "0",
+                            "random_bytes": []
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTE",
+                  "node": {
+                    "address": "0x6af2a2b7ca60bf76174adfd3e9c4957f8e937759603182f9b46c7f6c5f19c6d2",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<u64,0x0000000000000000000000000000000000000000000000000000000000000003::sui_system_state_inner::SuiSystemStateInner>"
+                        },
+                        "json": {
+                          "id": "0x6af2a2b7ca60bf76174adfd3e9c4957f8e937759603182f9b46c7f6c5f19c6d2",
+                          "name": "1",
+                          "value": {
+                            "epoch": "0",
+                            "protocol_version": "35",
+                            "system_state_version": "1",
+                            "validators": {
+                              "total_stake": "20000000000000000",
+                              "active_validators": [
+                                {
+                                  "metadata": {
+                                    "sui_address": "0xa7b032703878aa74c3126935789fd1d4d7e111d5911b09247d6963061c312b5a",
+                                    "protocol_pubkey_bytes": [
+                                      168,
+                                      10,
+                                      113,
+                                      148,
+                                      146,
+                                      18,
+                                      4,
+                                      206,
+                                      160,
+                                      17,
+                                      65,
+                                      3,
+                                      192,
+                                      72,
+                                      69,
+                                      3,
+                                      34,
+                                      62,
+                                      177,
+                                      119,
+                                      149,
+                                      119,
+                                      28,
+                                      226,
+                                      120,
+                                      84,
+                                      208,
+                                      34,
+                                      33,
+                                      221,
+                                      215,
+                                      26,
+                                      19,
+                                      43,
+                                      135,
+                                      198,
+                                      111,
+                                      189,
+                                      25,
+                                      213,
+                                      111,
+                                      170,
+                                      66,
+                                      24,
+                                      110,
+                                      12,
+                                      78,
+                                      20,
+                                      10,
+                                      27,
+                                      128,
+                                      57,
+                                      246,
+                                      144,
+                                      114,
+                                      82,
+                                      79,
+                                      96,
+                                      215,
+                                      59,
+                                      240,
+                                      247,
+                                      211,
+                                      18,
+                                      143,
+                                      1,
+                                      109,
+                                      137,
+                                      179,
+                                      82,
+                                      215,
+                                      118,
+                                      63,
+                                      135,
+                                      18,
+                                      31,
+                                      123,
+                                      40,
+                                      235,
+                                      25,
+                                      153,
+                                      189,
+                                      81,
+                                      129,
+                                      128,
+                                      219,
+                                      99,
+                                      215,
+                                      146,
+                                      145,
+                                      113,
+                                      132,
+                                      99,
+                                      76,
+                                      126,
+                                      246
+                                    ],
+                                    "network_pubkey_bytes": [
+                                      222,
+                                      193,
+                                      56,
+                                      253,
+                                      223,
+                                      140,
+                                      108,
+                                      228,
+                                      161,
+                                      246,
+                                      151,
+                                      172,
+                                      42,
+                                      190,
+                                      219,
+                                      243,
+                                      212,
+                                      210,
+                                      59,
+                                      152,
+                                      5,
+                                      6,
+                                      236,
+                                      134,
+                                      82,
+                                      53,
+                                      90,
+                                      224,
+                                      105,
+                                      93,
+                                      152,
+                                      85
+                                    ],
+                                    "worker_pubkey_bytes": [
+                                      172,
+                                      116,
+                                      152,
+                                      220,
+                                      228,
+                                      127,
+                                      173,
+                                      148,
+                                      84,
+                                      44,
+                                      112,
+                                      162,
+                                      74,
+                                      125,
+                                      50,
+                                      95,
+                                      124,
+                                      147,
+                                      55,
+                                      36,
+                                      241,
+                                      143,
+                                      223,
+                                      60,
+                                      129,
+                                      224,
+                                      221,
+                                      102,
+                                      15,
+                                      35,
+                                      217,
+                                      101
+                                    ],
+                                    "proof_of_possession": [
+                                      128,
+                                      156,
+                                      67,
+                                      33,
+                                      58,
+                                      1,
+                                      39,
+                                      117,
+                                      201,
+                                      238,
+                                      255,
+                                      186,
+                                      75,
+                                      160,
+                                      126,
+                                      112,
+                                      202,
+                                      232,
+                                      153,
+                                      37,
+                                      253,
+                                      202,
+                                      71,
+                                      140,
+                                      94,
+                                      117,
+                                      125,
+                                      17,
+                                      181,
+                                      101,
+                                      235,
+                                      149,
+                                      12,
+                                      103,
+                                      135,
+                                      36,
+                                      124,
+                                      64,
+                                      40,
+                                      191,
+                                      203,
+                                      204,
+                                      20,
+                                      212,
+                                      46,
+                                      230,
+                                      32,
+                                      74
+                                    ],
+                                    "name": "validator-0",
+                                    "description": "",
+                                    "image_url": {
+                                      "url": ""
+                                    },
+                                    "project_url": {
+                                      "url": ""
+                                    },
+                                    "net_address": "/ip4/127.0.0.1/tcp/8000/http",
+                                    "p2p_address": "/ip4/127.0.0.1/udp/8001/http",
+                                    "primary_address": "/ip4/127.0.0.1/udp/8004/http",
+                                    "worker_address": "/ip4/127.0.0.1/udp/8005/http",
+                                    "next_epoch_protocol_pubkey_bytes": null,
+                                    "next_epoch_proof_of_possession": null,
+                                    "next_epoch_network_pubkey_bytes": null,
+                                    "next_epoch_worker_pubkey_bytes": null,
+                                    "next_epoch_net_address": null,
+                                    "next_epoch_p2p_address": null,
+                                    "next_epoch_primary_address": null,
+                                    "next_epoch_worker_address": null,
+                                    "extra_fields": {
+                                      "id": "0xbb65dfc1adf3606f7111fafc3abb02175230c14c5ba02048221485d8bb407a3a",
+                                      "size": "0"
+                                    }
+                                  },
+                                  "voting_power": "10000",
+                                  "operation_cap_id": "0x011bb2206e3ef57d81e7571b19055c1144991639a379e1f9fc907496f0df4c26",
+                                  "gas_price": "1000",
+                                  "staking_pool": {
+                                    "id": "0xc3bc10faa827c146d9c7400f81fd6bdcae951cbe1c91accdafa15d919cd9613b",
+                                    "activation_epoch": "0",
+                                    "deactivation_epoch": null,
+                                    "sui_balance": "20000000000000000",
+                                    "rewards_pool": {
+                                      "value": "0"
+                                    },
+                                    "pool_token_balance": "20000000000000000",
+                                    "exchange_rates": {
+                                      "id": "0x1fe6467776b8fa468e17d2f9913dc49ad31df5a24afc021875c64c0d990919dd",
+                                      "size": "1"
+                                    },
+                                    "pending_stake": "0",
+                                    "pending_total_sui_withdraw": "0",
+                                    "pending_pool_token_withdraw": "0",
+                                    "extra_fields": {
+                                      "id": "0xce322ec6b9fd81e1c498161a4630e26dd5a56757a38ccc3d38cbeee97ca63239",
+                                      "size": "0"
+                                    }
+                                  },
+                                  "commission_rate": "200",
+                                  "next_epoch_stake": "20000000000000000",
+                                  "next_epoch_gas_price": "1000",
+                                  "next_epoch_commission_rate": "200",
+                                  "extra_fields": {
+                                    "id": "0xc39d7829e40957146b817bd69b1c7ceee1a97b24a3786d96da610fe56d147852",
+                                    "size": "0"
+                                  }
+                                }
+                              ],
+                              "pending_active_validators": {
+                                "contents": {
+                                  "id": "0x148060fb07f850bfa465e0d0c79dd80ed45c308dca8c87979245dd65219cdb2d",
+                                  "size": "0"
+                                }
+                              },
+                              "pending_removals": [],
+                              "staking_pool_mappings": {
+                                "id": "0xea5c1f08a45f06a8fe1c3f47be81a3500a6c6e05e4adc92c6b429001b3849c04",
+                                "size": "1"
+                              },
+                              "inactive_validators": {
+                                "id": "0x6759a07e1eb5677d9f0fa904f69ff1998a7ec3a904e5858edd25c7878b1f578b",
+                                "size": "0"
+                              },
+                              "validator_candidates": {
+                                "id": "0x1edc9b5926a5d5f246e112bbd496b556eddae4b0b74bfe9ecad6556e7d3adbd1",
+                                "size": "0"
+                              },
+                              "at_risk_validators": {
+                                "contents": []
+                              },
+                              "extra_fields": {
+                                "id": "0x3176e794f47be19ab936c1de3917f9f188609fed4b532d5abd6561d25b8cd27d",
+                                "size": "0"
+                              }
+                            },
+                            "storage_fund": {
+                              "total_object_storage_rebates": {
+                                "value": "0"
+                              },
+                              "non_refundable_balance": {
+                                "value": "0"
+                              }
+                            },
+                            "parameters": {
+                              "epoch_duration_ms": "86400000",
+                              "stake_subsidy_start_epoch": "0",
+                              "max_validator_count": "150",
+                              "min_validator_joining_stake": "30000000000000000",
+                              "validator_low_stake_threshold": "20000000000000000",
+                              "validator_very_low_stake_threshold": "15000000000000000",
+                              "validator_low_stake_grace_period": "7",
+                              "extra_fields": {
+                                "id": "0x81c5ade4acca09b99af90f06ade35d5cf5c4c7b0b437715465b5e553fb4f476a",
+                                "size": "0"
+                              }
+                            },
+                            "reference_gas_price": "1000",
+                            "validator_report_records": {
+                              "contents": []
+                            },
+                            "stake_subsidy": {
+                              "balance": {
+                                "value": "9949700000000000000"
+                              },
+                              "distribution_counter": "0",
+                              "current_distribution_amount": "1000000000000000",
+                              "stake_subsidy_period_length": "10",
+                              "stake_subsidy_decrease_rate": 1000,
+                              "extra_fields": {
+                                "id": "0x2db46cc74decabe4f89d36a8b6b7fd01c761905aed8201415211f4e041936253",
+                                "size": "0"
+                              }
+                            },
+                            "safe_mode": false,
+                            "safe_mode_storage_rewards": {
+                              "value": "0"
+                            },
+                            "safe_mode_computation_rewards": {
+                              "value": "0"
+                            },
+                            "safe_mode_storage_rebates": "0",
+                            "safe_mode_non_refundable_storage_fee": "0",
+                            "epoch_start_timestamp_ms": "0",
+                            "extra_fields": {
+                              "id": "0x739a57710f809be7cb9f382a15ddae4aa7d592282053c205f9a4c0b6cd64082c",
+                              "size": "0"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTI",
+                  "node": {
+                    "address": "0x806850704f0dfc8972f09fb48ee345a01ae2d30eb9120bf95d8b95095f43dd9d",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::coin::CoinMetadata<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>"
+                        },
+                        "json": {
+                          "id": "0x806850704f0dfc8972f09fb48ee345a01ae2d30eb9120bf95d8b95095f43dd9d",
+                          "decimals": 9,
+                          "name": "Sui",
+                          "symbol": "SUI",
+                          "description": "",
+                          "icon_url": null
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTM",
+                  "node": {
+                    "address": "0x90fa919321670122721f196efa2771b51c3b8271d6f44029b59daa9b2f0e444a",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<u64,0x0000000000000000000000000000000000000000000000000000000000000002::deny_list::PerTypeList>"
+                        },
+                        "json": {
+                          "id": "0x90fa919321670122721f196efa2771b51c3b8271d6f44029b59daa9b2f0e444a",
+                          "name": "0",
+                          "value": {
+                            "id": "0x00599744180336499d942dfbee21fcfca9b76cda35970f58c099114fa10f5c25",
+                            "denied_count": {
+                              "id": "0x79dd48b36d6a905add2537fa675d626601d684e8a98c688cfc72b4c511660116",
+                              "size": "0"
+                            },
+                            "denied_addresses": {
+                              "id": "0xed656e157407e61ea143a48d4d7cded81e370598f5266757dd8bdd53ffcfe7e9",
+                              "size": "0"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTQ",
+                  "node": {
+                    "address": "0x948c51404e7ec1f26d0825ac9aa364b9f518b8133914362da14bf37e813a80dc",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<0x0000000000000000000000000000000000000000000000000000000000000002::object::ID,address>"
+                        },
+                        "json": {
+                          "id": "0x948c51404e7ec1f26d0825ac9aa364b9f518b8133914362da14bf37e813a80dc",
+                          "name": "0xc3bc10faa827c146d9c7400f81fd6bdcae951cbe1c91accdafa15d919cd9613b",
+                          "value": "0xa7b032703878aa74c3126935789fd1d4d7e111d5911b09247d6963061c312b5a"
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTU",
+                  "node": {
+                    "address": "0xa669d9f74ba9efd4150ae091a25823ead02bdea0ca2251a303a6f410aa63b8da",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000003::staking_pool::StakedSui"
+                        },
+                        "json": {
+                          "id": "0xa669d9f74ba9efd4150ae091a25823ead02bdea0ca2251a303a6f410aa63b8da",
+                          "pool_id": "0xc3bc10faa827c146d9c7400f81fd6bdcae951cbe1c91accdafa15d919cd9613b",
+                          "stake_activation_epoch": "0",
+                          "principal": {
+                            "value": "20000000000000000"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTY",
+                  "node": {
+                    "address": "0xb35c1ae1210419e12970936dfc2ac333914326c7daaed64a1c267b2ac2d5d6c5",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<u64,0x0000000000000000000000000000000000000000000000000000000000000003::staking_pool::PoolTokenExchangeRate>"
+                        },
+                        "json": {
+                          "id": "0xb35c1ae1210419e12970936dfc2ac333914326c7daaed64a1c267b2ac2d5d6c5",
+                          "name": "0",
+                          "value": {
+                            "sui_amount": "0",
+                            "pool_token_amount": "0"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTc",
+                  "node": {
+                    "address": "0xcfecb053c69314e75f36561910f3535dd466b6e2e3593708f370e80424617ae7",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_field::Field<u64,0x0000000000000000000000000000000000000000000000000000000000000002::authenticator_state::AuthenticatorStateInner>"
+                        },
+                        "json": {
+                          "id": "0xcfecb053c69314e75f36561910f3535dd466b6e2e3593708f370e80424617ae7",
+                          "name": "1",
+                          "value": {
+                            "version": "1",
+                            "active_jwks": []
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTg",
+                  "node": {
+                    "address": "0xfb3526bf24453d76d8deff4da49cbdc0c4707a30cb7e5804bc6a606da5ca5c56",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>"
+                        },
+                        "json": {
+                          "id": "0xfb3526bf24453d76d8deff4da49cbdc0c4707a30cb7e5804bc6a606da5ca5c56",
+                          "balance": {
+                            "value": "30000000000000000"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                },
+                {
+                  "cursor": "MTk",
+                  "node": {
+                    "address": "0xffafc325fd7e3624007874223fe8d5484d611b5c62d5fbf61afe1546300af364",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>"
+                        },
+                        "json": {
+                          "id": "0xffafc325fd7e3624007874223fe8d5484d611b5c62d5fbf61afe1546300af364",
+                          "balance": {
+                            "value": "300000000000000"
+                          }
+                        }
+                      }
+                    },
+                    "asMovePackage": null
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 1,
+            "dependencies": {
+              "nodes": []
+            },
+            "balanceChanges": {
+              "nodes": [
+                {
+                  "owner": {
+                    "address": "0xa7b032703878aa74c3126935789fd1d4d7e111d5911b09247d6963061c312b5a"
+                  },
+                  "amount": "30000000000000000",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                },
+                {
+                  "owner": {
+                    "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+                  },
+                  "amount": "300000000000000",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                }
+              ]
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000001",
+                    "digest": "BzaFt8HqfTKgTy4TbrJ7ggQb9qH7eAaMr8J1vQHsvocA"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "digest": "4JkaVZh54QoXFSzrR7Farbh4Cq98UMMXZmxYm5gti58E"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000003",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000003",
+                    "digest": "7GPyzb9bLnBNZA9Ejs8UR8bd8KpAZuwtmtuBkVWi3SDr"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                    "digest": "Xg3ipUnsdGgQeFAXjmAqLMC8mFYjACSpZrgVHYynsCX"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                    "digest": "CBEypLdh6CwhrqUobTEVwCapdprAh9x2u5fw3bLaUyrp"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000007",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000007",
+                    "digest": "2ZsTLjezCE5jZXfm6VTnAYRTUd7FVH3VFgqcnRWwiEjn"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000008",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000008",
+                    "digest": "BT5UbQ5kHc6Nj2twU1R4yYA72rmHWK2kkLiMtxrHnVMN"
+                  }
+                },
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000403",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000403",
+                    "digest": "92uEny7LArtoccYt9aVqEwdnA5VZzsVEwwBe4QenTEr6"
+                  }
+                },
+                {
+                  "address": "0x000000000000000000000000000000000000000000000000000000000000dee9",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x000000000000000000000000000000000000000000000000000000000000dee9",
+                    "digest": "EZavR8gxgvRJHjm7AgHvbszLsD1hSvuSFVomnByozupz"
+                  }
+                },
+                {
+                  "address": "0x011bb2206e3ef57d81e7571b19055c1144991639a379e1f9fc907496f0df4c26",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x011bb2206e3ef57d81e7571b19055c1144991639a379e1f9fc907496f0df4c26",
+                    "digest": "GgUzEUyh1W7A8gXeRiBgiQ6Ydr7KUDxphzuD4MrcKZFt"
+                  }
+                },
+                {
+                  "address": "0x157d82f4e65f1b1f6158f9cd328a08fb2a31612e30783fc3e5b497b9bccb2579",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x157d82f4e65f1b1f6158f9cd328a08fb2a31612e30783fc3e5b497b9bccb2579",
+                    "digest": "88EBoXigCcmUv3hhApnqDUNttMRXxPkqkByFFak7Wzp1"
+                  }
+                },
+                {
+                  "address": "0x6af2a2b7ca60bf76174adfd3e9c4957f8e937759603182f9b46c7f6c5f19c6d2",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x6af2a2b7ca60bf76174adfd3e9c4957f8e937759603182f9b46c7f6c5f19c6d2",
+                    "digest": "5YgFbJwY1p8cfN8fiUd5ayxzcGP1Jtpch8jYxGn2mkYf"
+                  }
+                },
+                {
+                  "address": "0x806850704f0dfc8972f09fb48ee345a01ae2d30eb9120bf95d8b95095f43dd9d",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x806850704f0dfc8972f09fb48ee345a01ae2d30eb9120bf95d8b95095f43dd9d",
+                    "digest": "EU7F4rfBpzb8HNG2x4yLd4B7XccR4wvqM23QkLUdDecV"
+                  }
+                },
+                {
+                  "address": "0x90fa919321670122721f196efa2771b51c3b8271d6f44029b59daa9b2f0e444a",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x90fa919321670122721f196efa2771b51c3b8271d6f44029b59daa9b2f0e444a",
+                    "digest": "6bhB6UmHFwHHDkSbyb6WseMZWF8tjYDxP6LndiTAqngT"
+                  }
+                },
+                {
+                  "address": "0x948c51404e7ec1f26d0825ac9aa364b9f518b8133914362da14bf37e813a80dc",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x948c51404e7ec1f26d0825ac9aa364b9f518b8133914362da14bf37e813a80dc",
+                    "digest": "BrBd1hfHd3PuomFAKD629BC7RZCGCxd6wbZn7ZsKWHxD"
+                  }
+                },
+                {
+                  "address": "0xa669d9f74ba9efd4150ae091a25823ead02bdea0ca2251a303a6f410aa63b8da",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xa669d9f74ba9efd4150ae091a25823ead02bdea0ca2251a303a6f410aa63b8da",
+                    "digest": "8dzT5MPureQ3sX9C4xa6N1TUvZWu634mCEP7UQCQPF3Y"
+                  }
+                },
+                {
+                  "address": "0xb35c1ae1210419e12970936dfc2ac333914326c7daaed64a1c267b2ac2d5d6c5",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xb35c1ae1210419e12970936dfc2ac333914326c7daaed64a1c267b2ac2d5d6c5",
+                    "digest": "5egFg3A8PmECakFUR3NVpo26XN5NwKjzppXDVDU6aLg7"
+                  }
+                },
+                {
+                  "address": "0xcfecb053c69314e75f36561910f3535dd466b6e2e3593708f370e80424617ae7",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xcfecb053c69314e75f36561910f3535dd466b6e2e3593708f370e80424617ae7",
+                    "digest": "FAAX68uFehUZ8x8gRYaDWuio4s55Sjy9ywJbtdLdfzEV"
+                  }
+                },
+                {
+                  "address": "0xfb3526bf24453d76d8deff4da49cbdc0c4707a30cb7e5804bc6a606da5ca5c56",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xfb3526bf24453d76d8deff4da49cbdc0c4707a30cb7e5804bc6a606da5ca5c56",
+                    "digest": "GhpM68b16KwmySPWxj2ZHqzvKbKwdbtssNiAFy97LtA9"
+                  }
+                },
+                {
+                  "address": "0xffafc325fd7e3624007874223fe8d5484d611b5c62d5fbf61afe1546300af364",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xffafc325fd7e3624007874223fe8d5484d611b5c62d5fbf61afe1546300af364",
+                    "digest": "5RErgeT6AxxeAEqH9gMtcfCwwwnWnKYVVqe3y6cbmC4N"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": null,
+              "gasSummary": {
+                "computationCost": "0",
+                "storageCost": "0",
+                "storageRebate": "0",
+                "nonRefundableStorageFee": "0"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:00Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 0
+            },
+            "transactionBlock": {
+              "digest": "7pmUhaENwwVedRTDm9RxJdphHp1nqLguWUfXtS6SXoRA"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 3 'create-checkpoint'. lines 106-106:
+Checkpoint created: 1
+
+task 4 'run-graphql'. lines 108-183:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "CHyKA8xirNCGtcDMLJcxBZsxGyAA7DNrzDEVodxZzNn",
+          "sender": null,
+          "signatures": [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "gasPayment": {
+              "nodes": []
+            },
+            "gasPrice": "1",
+            "gasBudget": "0"
+          },
+          "kind": {
+            "__typename": "ConsensusCommitPrologueTransaction",
+            "epoch": {
+              "epochId": 0
+            },
+            "round": 0,
+            "commitTimestamp": "1970-01-01T00:00:42Z",
+            "consensusCommitDigest": "11111111111111111111111111111111"
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 2,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "7pmUhaENwwVedRTDm9RxJdphHp1nqLguWUfXtS6SXoRA"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": []
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000006",
+                    "digest": "28w3Mp2x4vt94bq4TejrbLcfMsMaevDyPz6h98sgcnw4"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": null,
+              "gasSummary": {
+                "computationCost": "0",
+                "storageCost": "0",
+                "storageRebate": "0",
+                "nonRefundableStorageFee": "0"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:42Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 1
+            },
+            "transactionBlock": {
+              "digest": "CHyKA8xirNCGtcDMLJcxBZsxGyAA7DNrzDEVodxZzNn"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 6 'advance-epoch'. lines 187-187:
+Epoch advanced: 0
+
+task 7 'run-graphql'. lines 189-276:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "DgPxfaDGo7xB4wW6YmtRSCEX2GvNWrbsffEhswcMukaT",
+          "sender": null,
+          "signatures": [
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0x0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "gasPayment": {
+              "nodes": []
+            },
+            "gasPrice": "1",
+            "gasBudget": "0"
+          },
+          "kind": {
+            "__typename": "EndOfEpochTransaction",
+            "transactions": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "ChangeEpochTransaction",
+                    "epoch": {
+                      "epochId": 1
+                    },
+                    "protocolVersion": 35,
+                    "storageCharge": "0",
+                    "computationCharge": "0",
+                    "storageRebate": "0",
+                    "nonRefundableStorageFee": "0",
+                    "startTimestamp": "1970-01-01T00:01:25Z"
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 2,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "7pmUhaENwwVedRTDm9RxJdphHp1nqLguWUfXtS6SXoRA"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": []
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0000000000000000000000000000000000000000000000000000000000000005",
+                    "digest": "BB9Mav7vpGW5DkC5Fy1mzqCT2u4LEuxtj3DJd7h2Gd8o"
+                  }
+                },
+                {
+                  "address": "0x5b890eaf2abcfa2ab90b77b8e6f3d5d8609586c3e583baf3dccd5af17edf48d1",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x5b890eaf2abcfa2ab90b77b8e6f3d5d8609586c3e583baf3dccd5af17edf48d1",
+                    "digest": "D9ucdXX78P11zaGV81KbRsdJkot87H88kLRt3xB7EsTt"
+                  }
+                },
+                {
+                  "address": "0x6af2a2b7ca60bf76174adfd3e9c4957f8e937759603182f9b46c7f6c5f19c6d2",
+                  "idCreated": false,
+                  "idDeleted": true,
+                  "outputState": null
+                },
+                {
+                  "address": "0x843eb127378556b2694828c57c93c87877971bd31d3100175266e73c05375b8d",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x843eb127378556b2694828c57c93c87877971bd31d3100175266e73c05375b8d",
+                    "digest": "2TpFrjeNDToudaYhrruLHcanuSGQpHMsJb8kP2PRzizo"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": null,
+              "gasSummary": {
+                "computationCost": "0",
+                "storageCost": "0",
+                "storageRebate": "0",
+                "nonRefundableStorageFee": "0"
+              }
+            },
+            "timestamp": "1970-01-01T00:01:25Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 2
+            },
+            "transactionBlock": {
+              "digest": "DgPxfaDGo7xB4wW6YmtRSCEX2GvNWrbsffEhswcMukaT"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}

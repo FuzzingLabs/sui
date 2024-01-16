@@ -192,7 +192,7 @@ fn command(context: &mut Context, sp!(loc, cmd_): &Command) {
             context.extend_diags(diags)
         }
         C::Jump { .. } => (),
-        C::Break | C::Continue => panic!("ICE break/continue not translated to jumps"),
+        C::Break(_) | C::Continue(_) => panic!("ICE break/continue not translated to jumps"),
     }
 }
 
@@ -250,7 +250,7 @@ fn exp(context: &mut Context, parent_e: &Exp) {
     use UnannotatedExp_ as E;
     let eloc = &parent_e.exp.loc;
     match &parent_e.exp.value {
-        E::Unit { .. } | E::Value(_) | E::Constant(_) | E::Spec(_, _) | E::UnresolvedError => (),
+        E::Unit { .. } | E::Value(_) | E::Constant(_) | E::UnresolvedError => (),
 
         E::BorrowLocal(_, var) | E::Copy { var, .. } => use_local(context, eloc, var),
 

@@ -10,6 +10,7 @@ use itertools::Itertools;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::num::NonZeroUsize;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -20,10 +21,11 @@ use sui_core::authority_client::{AuthorityAPI, NetworkAuthorityClient};
 use sui_network::default_mysten_network_config;
 use sui_protocol_config::Chain;
 use sui_sdk::SuiClientBuilder;
+use sui_storage::object_store::http::HttpDownloaderBuilder;
 use sui_types::accumulator::Accumulator;
 use sui_types::crypto::AuthorityPublicKeyBytes;
+use sui_types::messages_grpc::LayoutGenerationOption;
 use sui_types::multiaddr::Multiaddr;
-use sui_types::object::ObjectFormatOptions;
 use sui_types::{base_types::*, object::Owner};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -47,7 +49,7 @@ use sui_core::epoch::committee_store::CommitteeStore;
 use sui_core::storage::RocksDbStore;
 use sui_snapshot::reader::StateSnapshotReaderV1;
 use sui_snapshot::setup_db_state;
-use sui_storage::object_store::util::{copy_file, get_path};
+use sui_storage::object_store::util::{copy_file, exists, get_path};
 use sui_storage::object_store::{ObjectStoreConfig, ObjectStoreType};
 use sui_storage::verify_checkpoint_range;
 use sui_types::messages_checkpoint::{CheckpointCommitment, ECMHLiveObjectSetDigest};
@@ -56,11 +58,13 @@ use sui_types::messages_grpc::{
     TransactionStatus,
 };
 
+use sui_types::storage::{ReadStore, SharedInMemoryStore};
 use tracing::info;
 use typed_store::rocks::MetricConf;
 
 pub mod commands;
 pub mod db_tool;
+pub mod pkg_dump;
 
 // This functions requires at least one of genesis or fullnode_rpc to be `Some`.
 async fn make_clients(
@@ -488,7 +492,7 @@ async fn get_object_impl(
     let resp = client
         .handle_object_info_request(ObjectInfoRequest {
             object_id: id,
-            object_format_options: Some(ObjectFormatOptions::default()),
+            generate_layout: LayoutGenerationOption::Generate,
             request_kind: match version {
                 None => ObjectInfoRequestKind::LatestObjectInfo,
                 Some(v) => ObjectInfoRequestKind::PastObjectInfoDebug(SequenceNumber::from_u64(v)),
@@ -791,6 +795,30 @@ fn start_summary_sync(
     })
 }
 
+pub async fn check_completed_snapshot(
+    snapshot_store_config: &ObjectStoreConfig,
+    epoch: EpochId,
+) -> Result<(), anyhow::Error> {
+    let success_marker = format!("epoch_{}/_SUCCESS", epoch);
+    let remote_object_store = if snapshot_store_config.no_sign_request {
+        snapshot_store_config.make_http()?
+    } else {
+        snapshot_store_config.make().map(Arc::new)?
+    };
+    if exists(&remote_object_store, &get_path(success_marker.as_str())).await {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "missing success marker at {}/{}",
+            snapshot_store_config
+                .bucket
+                .as_ref()
+                .unwrap_or(&"unknown_bucket".to_string()),
+            success_marker
+        ))
+    }
+}
+
 pub async fn download_formal_snapshot(
     path: &Path,
     epoch: EpochId,
@@ -920,7 +948,7 @@ pub async fn download_formal_snapshot(
     } else {
         eprintln!(
             "WARNING: Skipping snapshot verification! \
-            This is highly discouraged unless you fully trust the source of this snapshot and its contents. 
+            This is highly discouraged unless you fully trust the source of this snapshot and its contents.
             If this was unintentional, rerun with `--verify` set to `true`"
         );
     }
@@ -961,13 +989,11 @@ pub async fn download_formal_snapshot(
 pub async fn download_db_snapshot(
     path: &Path,
     epoch: u64,
-    genesis: &Path,
     snapshot_store_config: ObjectStoreConfig,
-    archive_store_config: ObjectStoreConfig,
-    skip_checkpoints: bool,
     skip_indexes: bool,
     num_parallel_downloads: usize,
 ) -> Result<(), anyhow::Error> {
+    // TODO: Enable downloading db snapshots with no sign requests
     let remote_store = snapshot_store_config.make()?;
     let entries = remote_store.list_with_delimiter(None).await?;
     let epoch_path = format!("epoch_{}", epoch);
@@ -1026,26 +1052,24 @@ pub async fn download_db_snapshot(
             .await?
             .objects,
     );
-    if !skip_checkpoints {
-        let checkpoints_dir = entries
-            .common_prefixes
-            .iter()
-            .find(|entry| {
-                entry
-                    .filename()
-                    .map(|filename| filename == "checkpoints")
-                    .unwrap_or(false)
-            })
-            .ok_or(anyhow!(
-                "Checkpoints dir doesn't exist under the remote epoch dir"
-            ))?;
-        files.extend(
-            remote_store
-                .list_with_delimiter(Some(checkpoints_dir))
-                .await?
-                .objects,
-        );
-    }
+    let checkpoints_dir = entries
+        .common_prefixes
+        .iter()
+        .find(|entry| {
+            entry
+                .filename()
+                .map(|filename| filename == "checkpoints")
+                .unwrap_or(false)
+        })
+        .ok_or(anyhow!(
+            "Checkpoints dir doesn't exist under the remote epoch dir"
+        ))?;
+    files.extend(
+        remote_store
+            .list_with_delimiter(Some(checkpoints_dir))
+            .await?
+            .objects,
+    );
     if !skip_indexes {
         let indexes_dir = entries
             .common_prefixes
@@ -1079,40 +1103,6 @@ pub async fn download_db_snapshot(
     .make()?;
     let m = MultiProgress::new();
     let path = path.to_path_buf();
-    let genesis = genesis.to_path_buf();
-    let perpetual_db = Arc::new(AuthorityPerpetualTables::open(
-        &path.join(format!("epoch_{}", epoch)).join("store"),
-        None,
-    ));
-    let summaries_handle = if skip_checkpoints {
-        let perpetual_db = Arc::new(AuthorityPerpetualTables::open(&path.join("store"), None));
-        let genesis = Genesis::load(genesis).unwrap();
-        let genesis_committee = genesis.committee()?;
-        let committee_store = Arc::new(CommitteeStore::new(
-            path.join("epochs"),
-            &genesis_committee,
-            None,
-        ));
-        let checkpoint_store = Arc::new(CheckpointStore::open_tables_read_write(
-            path.join("checkpoints"),
-            MetricConf::default(),
-            None,
-            None,
-        ));
-        Some(start_summary_sync(
-            perpetual_db,
-            committee_store,
-            checkpoint_store,
-            m.clone(),
-            genesis,
-            archive_store_config,
-            epoch,
-            num_parallel_downloads,
-            false, // verify
-        ))
-    } else {
-        None
-    };
     let snapshot_handle = tokio::spawn(async move {
         let progress_bar = m.add(
             ProgressBar::new(files.len() as u64).with_style(
@@ -1133,13 +1123,7 @@ pub async fn download_db_snapshot(
                 let counter_cloned = file_counter.clone();
                 async move {
                     counter_cloned.fetch_add(1, Ordering::Relaxed);
-                    copy_file(
-                        file.location.clone(),
-                        file.location.clone(),
-                        remote_store.clone(),
-                        local_store.clone(),
-                    )
-                    .await?;
+                    copy_file(&file.location, &file.location, &remote_store, &local_store).await?;
                     Ok::<(::object_store::path::Path, usize), anyhow::Error>((
                         file.location.clone(),
                         file.size,
@@ -1169,28 +1153,13 @@ pub async fn download_db_snapshot(
         Ok::<(), anyhow::Error>(())
     });
 
-    let mut tasks: Vec<_> = vec![Box::pin(snapshot_handle)];
-    if let Some(summary_handle) = summaries_handle {
-        tasks.push(Box::pin(summary_handle));
-    }
+    let tasks: Vec<_> = vec![Box::pin(snapshot_handle)];
     join_all(tasks)
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
         .for_each(|result| result.expect("Task failed"));
-    if skip_checkpoints {
-        let checkpoint_store = Arc::new(CheckpointStore::open_tables_read_write(
-            path.join("checkpoints"),
-            MetricConf::default(),
-            None,
-            None,
-        ));
-        let last_checkpoint = checkpoint_store
-            .get_highest_verified_checkpoint()?
-            .expect("Expected nonempty checkpoint store");
-        perpetual_db.set_highest_pruned_checkpoint_without_wb(last_checkpoint.sequence_number)?;
-    }
 
     let store_dir = path.join("store");
     if store_dir.exists() {
@@ -1211,6 +1180,55 @@ pub async fn verify_archive(
 ) -> Result<()> {
     verify_archive_with_genesis_config(genesis, remote_store_config, concurrency, interactive, 10)
         .await
+}
+
+pub async fn dump_checkpoints_from_archive(
+    remote_store_config: ObjectStoreConfig,
+    start_checkpoint: u64,
+    end_checkpoint: u64,
+    max_content_length: usize,
+) -> Result<()> {
+    let metrics = ArchiveReaderMetrics::new(&Registry::default());
+    let config = ArchiveReaderConfig {
+        remote_store_config,
+        download_concurrency: NonZeroUsize::new(1).unwrap(),
+        use_for_pruning_watermark: false,
+    };
+    let store = SharedInMemoryStore::default();
+    let archive_reader = ArchiveReader::new(config, &metrics)?;
+    archive_reader.sync_manifest_once().await?;
+    let checkpoint_counter = Arc::new(AtomicU64::new(0));
+    let txn_counter = Arc::new(AtomicU64::new(0));
+    archive_reader
+        .read(
+            store.clone(),
+            Range {
+                start: start_checkpoint,
+                end: end_checkpoint,
+            },
+            txn_counter,
+            checkpoint_counter,
+            false,
+        )
+        .await?;
+    for key in store
+        .inner()
+        .checkpoints()
+        .values()
+        .sorted_by(|a, b| a.sequence_number().cmp(&b.sequence_number))
+    {
+        let mut content = serde_json::to_string(
+            &store
+                .get_full_checkpoint_contents_by_sequence_number(key.sequence_number)?
+                .unwrap(),
+        )?;
+        content.truncate(max_content_length);
+        info!(
+            "{}:{}:{:?}",
+            key.sequence_number, key.content_digest, content
+        );
+    }
+    Ok(())
 }
 
 pub async fn verify_archive_by_checksum(
@@ -1325,6 +1343,7 @@ pub async fn state_sync_from_archive(
             start..u64::MAX,
             txn_counter,
             checkpoint_counter,
+            true,
         )
         .await?;
     let end = checkpoint_store

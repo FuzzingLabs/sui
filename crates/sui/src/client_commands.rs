@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use core::fmt;
 use std::{
     fmt::{Debug, Display, Formatter, Write},
     path::PathBuf,
@@ -35,7 +34,7 @@ use sui_json_rpc_types::{
     SuiParsedData, SuiRawData, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse,
     SuiTransactionBlockResponseOptions,
 };
-use sui_json_rpc_types::{ObjectChange, SuiExecutionStatus, SuiObjectDataOptions};
+use sui_json_rpc_types::{SuiExecutionStatus, SuiObjectDataOptions};
 use sui_keys::keystore::AccountKeystore;
 use sui_move_build::{
     build_from_resolution_graph, check_invalid_dependencies, check_unpublished_dependencies,
@@ -68,6 +67,8 @@ use tabled::{
     },
 };
 use tracing::info;
+
+use crate::key_identity::{get_identity_address, KeyIdentity};
 
 macro_rules! serialize_or_execute {
     ($tx_data:expr, $serialize_unsigned:expr, $serialize_signed:expr, $context:expr, $result_variant:ident) => {{
@@ -119,8 +120,11 @@ pub enum SuiClientCommands {
     ActiveEnv,
     /// Obtain the Addresses managed by the client.
     #[clap(name = "addresses")]
-    Addresses,
-
+    Addresses {
+        /// Sort by alias instead of address
+        #[clap(long, short = 's')]
+        sort_by_alias: bool,
+    },
     /// Call Move function
     #[clap(name = "call")]
     Call {
@@ -198,23 +202,25 @@ pub enum SuiClientCommands {
     },
 
     /// Obtain all gas objects owned by the address.
+    /// An address' alias can be used instead of the address.
     #[clap(name = "gas")]
     Gas {
-        /// Address owning the objects
+        /// Address (or its alias) owning the objects
         #[clap(name = "owner_address")]
-        address: Option<SuiAddress>,
+        #[arg(value_parser)]
+        address: Option<KeyIdentity>,
     },
 
     /// Merge two coin objects into one coin
     MergeCoin {
-        /// Coin to merge into, in 20 bytes Hex string
+        /// The address of the coin to merge into.
         #[clap(long)]
         primary_coin: ObjectID,
-        /// Coin to be merged, in 20 bytes Hex string
+        /// The address of the coin to be merged.
         #[clap(long)]
         coin_to_merge: ObjectID,
-        /// ID of the gas object for gas payment, in 20 bytes Hex string
-        /// If not provided, a gas object with at least gas_budget value will be selected
+        /// The address of the gas object for gas payment.
+        /// If not provided, a gas object with at least gas_budget value will be selected.
         #[clap(long)]
         gas: Option<ObjectID>,
         /// Gas budget for this call
@@ -239,6 +245,8 @@ pub enum SuiClientCommands {
     #[clap(name = "new-address")]
     NewAddress {
         key_scheme: SignatureScheme,
+        /// The alias must start with a letter and can contain only letters, digits, hyphens (-), or underscores (_).
+        alias: Option<String>,
         word_length: Option<String>,
         derivation_path: Option<DerivationPath>,
     },
@@ -265,13 +273,13 @@ pub enum SuiClientCommands {
         #[clap(long)]
         bcs: bool,
     },
-    /// Obtain all objects owned by the address
+    /// Obtain all objects owned by the address. It also accepts an address by its alias.
     #[clap(name = "objects")]
     Objects {
         /// Address owning the object. If no address is provided, it will show all
         /// objects owned by `sui client active-address`.
         #[clap(name = "owner_address")]
-        address: Option<SuiAddress>,
+        address: Option<KeyIdentity>,
     },
     /// Pay coins to recipients following specified amounts, with input coins.
     /// Length of recipients must be the same as that of amounts.
@@ -282,8 +290,9 @@ pub enum SuiClientCommands {
         input_coins: Vec<ObjectID>,
 
         /// The recipient addresses, must be of same length as amounts
+        /// Aliases of addresses are also accepted as input.
         #[clap(long, num_args(1..))]
-        recipients: Vec<SuiAddress>,
+        recipients: Vec<KeyIdentity>,
 
         /// The amounts to be paid, following the order of recipients.
         #[clap(long, num_args(1..))]
@@ -316,9 +325,9 @@ pub enum SuiClientCommands {
         #[clap(long, num_args(1..))]
         input_coins: Vec<ObjectID>,
 
-        /// The recipient address.
+        /// The recipient address (or its alias if it's an address in the keystore).
         #[clap(long)]
-        recipient: SuiAddress,
+        recipient: KeyIdentity,
 
         /// Gas budget for this transaction
         #[clap(long)]
@@ -344,8 +353,9 @@ pub enum SuiClientCommands {
         input_coins: Vec<ObjectID>,
 
         /// The recipient addresses, must be of same length as amounts.
+        /// Aliases of addresses are also accepted as input.
         #[clap(long, num_args(1..))]
-        recipients: Vec<SuiAddress>,
+        recipients: Vec<KeyIdentity>,
 
         /// The amounts to be paid, following the order of recipients.
         #[clap(long, num_args(1..))]
@@ -404,10 +414,6 @@ pub enum SuiClientCommands {
         /// (SenderSignedData) using base64 encoding, and print out the string.
         #[clap(long, required = false)]
         serialize_signed_transaction: bool,
-
-        /// If `true`, disable linters
-        #[clap(long, global = true)]
-        no_lint: bool,
     },
 
     /// Split a coin object into multiple coins.
@@ -441,13 +447,13 @@ pub enum SuiClientCommands {
         serialize_signed_transaction: bool,
     },
 
-    /// Switch active address and network(e.g., devnet, local rpc server)
+    /// Switch active address and network(e.g., devnet, local rpc server).
     #[clap(name = "switch")]
     Switch {
-        /// An Sui address to be used as the active address for subsequent
-        /// commands.
+        /// An address to be used as the active address for subsequent
+        /// commands. It accepts also the alias of the address.
         #[clap(long)]
-        address: Option<SuiAddress>,
+        address: Option<KeyIdentity>,
         /// The RPC server URL (e.g., local rpc server, devnet rpc server, etc) to be
         /// used for subsequent commands.
         #[clap(long)]
@@ -465,9 +471,9 @@ pub enum SuiClientCommands {
     /// Transfer object
     #[clap(name = "transfer")]
     Transfer {
-        /// Recipient address
+        /// Recipient address (or its alias if it's an address in the keystore)
         #[clap(long)]
-        to: SuiAddress,
+        to: KeyIdentity,
 
         /// Object to transfer, in 20 bytes Hex string
         #[clap(long)]
@@ -498,9 +504,9 @@ pub enum SuiClientCommands {
     /// is transferred.
     #[clap(name = "transfer-sui")]
     TransferSui {
-        /// Recipient address
+        /// Recipient address (or its alias if it's an address in the keystore)
         #[clap(long)]
-        to: SuiAddress,
+        to: KeyIdentity,
 
         /// Sui coin object to transfer, ID in 20 bytes Hex string. This is also the gas object.
         #[clap(long)]
@@ -567,10 +573,6 @@ pub enum SuiClientCommands {
         /// (SenderSignedData) using base64 encoding, and print out the string.
         #[clap(long, required = false)]
         serialize_signed_transaction: bool,
-
-        /// If `true`, disable linters
-        #[clap(long, global = true)]
-        no_lint: bool,
     },
 
     /// Run the bytecode verifier on the package
@@ -616,6 +618,10 @@ pub enum SuiClientCommands {
         /// The digest of the transaction to replay
         #[arg(long, short)]
         tx_digest: String,
+
+        /// Log extra gas-related information
+        #[arg(long, short)]
+        gas_info: bool,
     },
 
     /// Replay transactions listed in a file.
@@ -653,7 +659,10 @@ impl SuiClientCommands {
         context: &mut WalletContext,
     ) -> Result<SuiClientCommandResult, anyhow::Error> {
         let ret = Ok(match self {
-            SuiClientCommands::ReplayTransaction { tx_digest } => {
+            SuiClientCommands::ReplayTransaction {
+                tx_digest,
+                gas_info: _,
+            } => {
                 let cmd = ReplayToolCommand::ReplayTransaction {
                     tx_digest,
                     show_effects: true,
@@ -661,6 +670,7 @@ impl SuiClientCommands {
                     executor_version_override: None,
                     protocol_version_override: None,
                 };
+
                 let rpc = context.config.get_active_env()?.rpc.clone();
                 let _command_result =
                     sui_replay::execute_replay_command(Some(rpc), false, false, None, cmd).await?;
@@ -696,13 +706,24 @@ impl SuiClientCommands {
                     sui_replay::execute_replay_command(Some(rpc), false, false, None, cmd).await?;
                 SuiClientCommandResult::ReplayCheckpoints
             }
-            SuiClientCommands::Addresses => {
+            SuiClientCommands::Addresses { sort_by_alias } => {
                 let active_address = context.active_address()?;
-                let addresses = context.config.keystore.addresses();
-                SuiClientCommandResult::Addresses(AddressesOutput {
-                    addresses,
+                let mut addresses: Vec<(String, SuiAddress)> = context
+                    .config
+                    .keystore
+                    .addresses_with_alias()
+                    .into_iter()
+                    .map(|(address, alias)| (alias.alias.to_string(), *address))
+                    .collect();
+                if sort_by_alias {
+                    addresses.sort();
+                }
+
+                let output = AddressesOutput {
                     active_address,
-                })
+                    addresses,
+                };
+                SuiClientCommandResult::Addresses(output)
             }
             SuiClientCommands::DynamicFieldQuery { id, cursor, limit } => {
                 let client = context.get_client().await?;
@@ -723,7 +744,6 @@ impl SuiClientCommands {
                 with_unpublished_dependencies,
                 serialize_unsigned_transaction,
                 serialize_signed_transaction,
-                no_lint,
             } => {
                 let sender = context.try_get_object_owner(&gas).await?;
                 let sender = sender.unwrap_or(context.active_address()?);
@@ -736,7 +756,6 @@ impl SuiClientCommands {
                         package_path,
                         with_unpublished_dependencies,
                         skip_dependency_verification,
-                        !no_lint,
                     )
                     .await?;
 
@@ -812,7 +831,6 @@ impl SuiClientCommands {
                 with_unpublished_dependencies,
                 serialize_unsigned_transaction,
                 serialize_signed_transaction,
-                no_lint,
             } => {
                 if build_config.test_mode {
                     return Err(SuiError::ModulePublishFailure {
@@ -839,7 +857,6 @@ impl SuiClientCommands {
                     package_path,
                     with_unpublished_dependencies,
                     skip_dependency_verification,
-                    !no_lint,
                 )
                 .await?;
 
@@ -964,6 +981,7 @@ impl SuiClientCommands {
                 serialize_signed_transaction,
             } => {
                 let from = context.get_object_owner(&object_id).await?;
+                let to = get_identity_address(Some(to), context)?;
                 let client = context.get_client().await?;
                 let data = client
                     .transaction_builder()
@@ -987,7 +1005,7 @@ impl SuiClientCommands {
                 serialize_signed_transaction,
             } => {
                 let from = context.get_object_owner(&object_id).await?;
-
+                let to = get_identity_address(Some(to), context)?;
                 let client = context.get_client().await?;
                 let data = client
                     .transaction_builder()
@@ -1027,6 +1045,11 @@ impl SuiClientCommands {
                         amounts.len()
                     ),
                 );
+                let recipients = recipients
+                    .into_iter()
+                    .map(|x| get_identity_address(Some(x), context))
+                    .collect::<Result<Vec<SuiAddress>, anyhow::Error>>()
+                    .map_err(|e| anyhow!("{e}"))?;
                 let from = context.get_object_owner(&input_coins[0]).await?;
                 let client = context.get_client().await?;
                 let data = client
@@ -1066,6 +1089,11 @@ impl SuiClientCommands {
                         amounts.len()
                     ),
                 );
+                let recipients = recipients
+                    .into_iter()
+                    .map(|x| get_identity_address(Some(x), context))
+                    .collect::<Result<Vec<SuiAddress>, anyhow::Error>>()
+                    .map_err(|e| anyhow!("{e}"))?;
                 let signer = context.get_object_owner(&input_coins[0]).await?;
                 let client = context.get_client().await?;
                 let data = client
@@ -1092,6 +1120,7 @@ impl SuiClientCommands {
                     !input_coins.is_empty(),
                     "PayAllSui transaction requires a non-empty list of input coins"
                 );
+                let recipient = get_identity_address(Some(recipient), context)?;
                 let signer = context.get_object_owner(&input_coins[0]).await?;
                 let client = context.get_client().await?;
                 let data = client
@@ -1109,7 +1138,7 @@ impl SuiClientCommands {
             }
 
             SuiClientCommands::Objects { address } => {
-                let address = address.unwrap_or(context.active_address()?);
+                let address = get_identity_address(address, context)?;
                 let client = context.get_client().await?;
                 let mut objects: Vec<SuiObjectResponse> = Vec::new();
                 let mut cursor = None;
@@ -1138,23 +1167,31 @@ impl SuiClientCommands {
 
             SuiClientCommands::NewAddress {
                 key_scheme,
+                alias,
                 derivation_path,
                 word_length,
             } => {
                 let (address, phrase, scheme) = context.config.keystore.generate_and_add_new_key(
                     key_scheme,
+                    alias.clone(),
                     derivation_path,
                     word_length,
                 )?;
 
+                let alias = match alias {
+                    Some(x) => x,
+                    None => context.config.keystore.get_alias_by_address(&address)?,
+                };
+
                 SuiClientCommandResult::NewAddress(NewAddressOutput {
+                    alias,
                     address,
                     key_scheme: scheme,
                     recovery_phrase: phrase,
                 })
             }
             SuiClientCommands::Gas { address } => {
-                let address = address.unwrap_or(context.active_address()?);
+                let address = get_identity_address(address, context)?;
                 let coins = context
                     .gas_objects(address)
                     .await?
@@ -1235,20 +1272,28 @@ impl SuiClientCommands {
                 )
             }
             SuiClientCommands::Switch { address, env } => {
-                match (address, &env) {
-                    (None, Some(env)) => {
-                        Self::switch_env(&mut context.config, env)?;
+                let mut addr = None;
+
+                if address.is_none() && env.is_none() {
+                    return Err(anyhow!(
+                        "No address, an alias, or env specified. Please specify one."
+                    ));
+                }
+
+                if let Some(address) = address.clone() {
+                    let address = get_identity_address(Some(address), context)?;
+                    if !context.config.keystore.addresses().contains(&address) {
+                        return Err(anyhow!("Address {} not managed by wallet", address));
                     }
-                    (Some(addr), None) => {
-                        if !context.config.keystore.addresses().contains(&addr) {
-                            return Err(anyhow!("Address {} not managed by wallet", addr));
-                        }
-                        context.config.active_address = Some(addr);
-                    }
-                    _ => return Err(anyhow!("No address or env specified. Please Specify one.")),
+                    context.config.active_address = Some(address);
+                    addr = Some(address.to_string());
+                }
+
+                if let Some(ref env) = env {
+                    Self::switch_env(&mut context.config, env)?;
                 }
                 context.config.save()?;
-                SuiClientCommandResult::Switch(SwitchResponse { address, env })
+                SuiClientCommandResult::Switch(SwitchResponse { address: addr, env })
             }
             SuiClientCommands::ActiveAddress => {
                 SuiClientCommandResult::ActiveAddress(context.active_address().ok())
@@ -1277,8 +1322,7 @@ impl SuiClientCommands {
                         .map_err(|e| anyhow!(e))?,
                     );
                 }
-                let transaction =
-                    Transaction::from_generic_sig_data(data, Intent::sui_transaction(), sigs);
+                let transaction = Transaction::from_generic_sig_data(data, sigs);
 
                 let response = context.execute_transaction_may_fail(transaction).await?;
                 SuiClientCommandResult::ExecuteSignedTx(response)
@@ -1323,7 +1367,6 @@ impl SuiClientCommands {
                     config: build_config,
                     run_bytecode_verifier: true,
                     print_diags_to_stderr: true,
-                    lint: false,
                 }
                 .build(package_path)?;
 
@@ -1363,14 +1406,12 @@ fn compile_package_simple(
         config: resolve_lock_file_path(build_config, Some(package_path.clone()))?,
         run_bytecode_verifier: false,
         print_diags_to_stderr: false,
-        lint: false,
     };
     let resolution_graph = config.resolution_graph(&package_path)?;
 
     Ok(build_from_resolution_graph(
         package_path,
         resolution_graph,
-        false,
         false,
         false,
     )?)
@@ -1382,7 +1423,6 @@ async fn compile_package(
     package_path: PathBuf,
     with_unpublished_dependencies: bool,
     skip_dependency_verification: bool,
-    lint: bool,
 ) -> Result<
     (
         PackageDependencies,
@@ -1399,7 +1439,6 @@ async fn compile_package(
         config,
         run_bytecode_verifier,
         print_diags_to_stderr,
-        lint,
     };
     let resolution_graph = config.resolution_graph(&package_path)?;
     let (package_id, dependencies) = gather_published_ids(&resolution_graph);
@@ -1412,7 +1451,6 @@ async fn compile_package(
         resolution_graph,
         run_bytecode_verifier,
         print_diags_to_stderr,
-        lint,
     )?;
     if !compiled_package.is_system_package() {
         if let Some(already_published) = compiled_package.published_root_module() {
@@ -1466,9 +1504,18 @@ impl Display for SuiClientCommandResult {
         let mut writer = String::new();
         match self {
             SuiClientCommandResult::Addresses(addresses) => {
-                let json_obj = json!(addresses);
-                let mut table = json_to_table(&json_obj);
-                let style = TableStyle::rounded().horizontals([]);
+                let mut builder = TableBuilder::default();
+                builder.set_header(vec!["alias", "address", "active address"]);
+                for (alias, address) in &addresses.addresses {
+                    let active_address = if address == &addresses.active_address {
+                        "*".to_string()
+                    } else {
+                        "".to_string()
+                    };
+                    builder.push_record([alias.to_string(), address.to_string(), active_address]);
+                }
+                let mut table = builder.build();
+                let style = TableStyle::rounded();
                 table.with(style);
                 write!(f, "{}", table)?
             }
@@ -1528,7 +1575,7 @@ impl Display for SuiClientCommandResult {
             }
             SuiClientCommandResult::NewAddress(new_address) => {
                 let mut builder = TableBuilder::default();
-
+                builder.push_record(vec!["alias", new_address.alias.as_str()]);
                 builder.push_record(vec!["address", new_address.address.to_string().as_str()]);
                 builder.push_record(vec![
                     "keyScheme",
@@ -1567,23 +1614,27 @@ impl Display for SuiClientCommandResult {
                 Err(e) => writeln!(f, "Internal error, cannot read the object: {e}")?,
             },
             SuiClientCommandResult::Objects(object_refs) => {
-                let objects = ObjectsOutput::from_vec(object_refs.to_vec());
-                match objects {
-                    Ok(objs) => {
-                        let json_obj = json!(objs);
-                        let mut table = json_to_table(&json_obj);
-                        table.with(TableStyle::rounded().horizontals([]));
-                        writeln!(f, "{}", table)?
+                if object_refs.is_empty() {
+                    writeln!(f, "This address has no owned objects.")?
+                } else {
+                    let objects = ObjectsOutput::from_vec(object_refs.to_vec());
+                    match objects {
+                        Ok(objs) => {
+                            let json_obj = json!(objs);
+                            let mut table = json_to_table(&json_obj);
+                            table.with(TableStyle::rounded().horizontals([]));
+                            writeln!(f, "{}", table)?
+                        }
+                        Err(e) => write!(f, "Internal error: {e}")?,
                     }
-                    Err(e) => write!(f, "Internal error: {e}")?,
                 }
             }
             SuiClientCommandResult::Upgrade(response)
             | SuiClientCommandResult::Publish(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::TransactionBlock(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::RawObject(raw_object_read) => {
                 let raw_object = match raw_object_read.object() {
@@ -1607,7 +1658,7 @@ impl Display for SuiClientCommandResult {
                 writeln!(writer, "{}", raw_object)?;
             }
             SuiClientCommandResult::Call(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::SerializedUnsignedTransaction(tx_data) => {
                 writeln!(
@@ -1624,19 +1675,19 @@ impl Display for SuiClientCommandResult {
                 )?;
             }
             SuiClientCommandResult::Transfer(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::TransferSui(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::Pay(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::PaySui(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::PayAllSui(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::SyncClientState => {
                 writeln!(writer, "Client state sync complete.")?;
@@ -1645,10 +1696,10 @@ impl Display for SuiClientCommandResult {
                 writeln!(writer, "{}", ci)?;
             }
             SuiClientCommandResult::SplitCoin(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::MergeCoin(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::Switch(response) => {
                 write!(writer, "{}", response)?;
@@ -1660,7 +1711,7 @@ impl Display for SuiClientCommandResult {
                 };
             }
             SuiClientCommandResult::ExecuteSignedTx(response) => {
-                write!(writer, "{}", write_transaction_response(response)?)?;
+                write!(writer, "{}", response)?;
             }
             SuiClientCommandResult::ActiveEnv(env) => {
                 write!(writer, "{}", env.as_deref().unwrap_or("None"))?;
@@ -1770,77 +1821,6 @@ fn convert_number_to_string(value: Value) -> Value {
     }
 }
 
-// TODO(chris): only print out the full response when `--verbose` is provided
-pub fn write_transaction_response(
-    response: &SuiTransactionBlockResponse,
-) -> Result<String, fmt::Error> {
-    let mut writer = String::new();
-    writeln!(writer, "{}", "----- Transaction Digest ----".bold())?;
-    writeln!(writer, "{}", response.digest)?;
-    writeln!(writer, "{}", "----- Transaction Data ----".bold())?;
-    if let Some(t) = &response.transaction {
-        writeln!(writer, "{}", t)?;
-    }
-
-    writeln!(writer, "{}", "----- Transaction Effects ----".bold())?;
-    if let Some(e) = &response.effects {
-        writeln!(writer, "{}", e)?;
-    }
-
-    writeln!(writer, "{}", "----- Events ----".bold())?;
-    if let Some(e) = &response.events {
-        writeln!(writer, "{:#?}", json!(e))?;
-    }
-
-    writeln!(writer, "{}", "----- Object changes ----".bold())?;
-    if let Some(e) = &response.object_changes {
-        // Note that this will be refactored under Display for SuiTransactionBlockResponse
-        // as soon I implement all of the Display traits for all the types
-        let (mut created, mut deleted, mut mutated, mut published, mut transferred, mut wrapped) =
-            (vec![], vec![], vec![], vec![], vec![], vec![]);
-
-        for obj in e {
-            match obj {
-                ObjectChange::Created { .. } => created.push(obj),
-                ObjectChange::Deleted { .. } => deleted.push(obj),
-                ObjectChange::Mutated { .. } => mutated.push(obj),
-                ObjectChange::Published { .. } => published.push(obj),
-                ObjectChange::Transferred { .. } => transferred.push(obj),
-                ObjectChange::Wrapped { .. } => wrapped.push(obj),
-            };
-        }
-
-        write_obj_changes(created, "Created", &mut writer)?;
-        write_obj_changes(deleted, "Deleted", &mut writer)?;
-        write_obj_changes(mutated, "Mutated", &mut writer)?;
-        write_obj_changes(published, "Published", &mut writer)?;
-        write_obj_changes(transferred, "Transferred", &mut writer)?;
-        write_obj_changes(wrapped, "Wrapped", &mut writer)?;
-    }
-
-    writeln!(writer, "{}", "----- Balance changes ----".bold())?;
-    if let Some(e) = &response.balance_changes {
-        for balance in e {
-            writeln!(writer, "{}", balance)?;
-        }
-    }
-    Ok(writer)
-}
-
-fn write_obj_changes<T: Display>(
-    values: Vec<T>,
-    output_string: &str,
-    writer: &mut String,
-) -> std::fmt::Result {
-    if !values.is_empty() {
-        writeln!(writer, "\n{} Objects: ", output_string)?;
-        for obj in values {
-            writeln!(writer, "{}", obj)?;
-        }
-    }
-    Ok(())
-}
-
 impl Debug for SuiClientCommandResult {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = unwrap_err_to_string(|| match self {
@@ -1911,7 +1891,7 @@ impl SuiClientCommandResult {
 #[serde(rename_all = "camelCase")]
 pub struct AddressesOutput {
     pub active_address: SuiAddress,
-    pub addresses: Vec<SuiAddress>,
+    pub addresses: Vec<(String, SuiAddress)>,
 }
 
 #[derive(Serialize)]
@@ -1925,6 +1905,7 @@ pub struct DynamicFieldOutput {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewAddressOutput {
+    pub alias: String,
     pub address: SuiAddress,
     pub key_scheme: SignatureScheme,
     pub recovery_phrase: String,
@@ -2074,17 +2055,18 @@ pub enum SuiClientCommandResult {
     ReplayCheckpoints,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone)]
 pub struct SwitchResponse {
     /// Active address
-    pub address: Option<SuiAddress>,
+    pub address: Option<String>,
     pub env: Option<String>,
 }
 
 impl Display for SwitchResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut writer = String::new();
-        if let Some(addr) = self.address {
+
+        if let Some(addr) = &self.address {
             writeln!(writer, "Active address switched to {addr}")?;
         }
         if let Some(env) = &self.env {

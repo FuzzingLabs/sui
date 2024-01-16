@@ -27,6 +27,8 @@ use sui_types::crypto::{
     AuthorityKeyPair, AuthorityPublicKeyBytes, AuthoritySignInfo, AuthoritySignInfoTrait,
     AuthoritySignature, DefaultHash, SuiAuthoritySignature,
 };
+use sui_types::deny_list::{DENY_LIST_CREATE_FUNC, DENY_LIST_MODULE};
+use sui_types::digests::ChainIdentifier;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI, TransactionEvents};
 use sui_types::epoch_data::EpochData;
 use sui_types::gas::SuiGasStatus;
@@ -42,7 +44,9 @@ use sui_types::metrics::LimitsMetrics;
 use sui_types::object::{Object, Owner};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::sui_system_state::{get_sui_system_state, SuiSystemState, SuiSystemStateTrait};
-use sui_types::transaction::{CallArg, Command, InputObjectKind, InputObjects, Transaction};
+use sui_types::transaction::{
+    CallArg, CheckedInputObjects, Command, InputObjectKind, ObjectReadResult, Transaction,
+};
 use sui_types::{SUI_FRAMEWORK_ADDRESS, SUI_SYSTEM_ADDRESS};
 use tracing::trace;
 use validator_info::{GenesisValidatorInfo, GenesisValidatorMetadata, ValidatorInfo};
@@ -312,6 +316,15 @@ impl Builder {
         } else {
             assert!(unsigned_genesis.authenticator_state_object().is_none());
         }
+        assert_eq!(
+            protocol_config.random_beacon(),
+            unsigned_genesis.has_randomness_state_object()
+        );
+
+        assert_eq!(
+            protocol_config.enable_coin_deny_list(),
+            unsigned_genesis.coin_deny_list_state().is_some(),
+        );
 
         assert_eq!(
             self.validators.len(),
@@ -689,9 +702,10 @@ fn get_genesis_protocol_config(version: ProtocolVersion) -> ProtocolConfig {
     // We have a circular dependency here. Protocol config depends on chain ID, which
     // depends on genesis checkpoint (digest), which depends on genesis transaction, which
     // depends on protocol config.
-    // However since we know there are no chain specific protocol config options in genesis,
-    // we use Chain::Unknown here.
-    ProtocolConfig::get_for_version(version, Chain::Unknown)
+    //
+    // ChainIdentifier::default().chain() which can be overridden by the
+    // SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE if necessary
+    ProtocolConfig::get_for_version(version, ChainIdentifier::default().chain())
 }
 
 fn build_unsigned_genesis_data(
@@ -817,6 +831,7 @@ fn create_genesis_transaction(
                     *initial_shared_version = SequenceNumber::MIN;
                 }
 
+                let object = object.into_inner();
                 sui_types::transaction::GenesisObject::RawObject {
                     data: object.data,
                     owner: object.owner,
@@ -832,15 +847,14 @@ fn create_genesis_transaction(
     // execute txn to effects
     let (effects, events, objects) = {
         let silent = true;
-        let paranoid_checks = false;
-        let executor = sui_execution::executor(protocol_config, paranoid_checks, silent)
+        let executor = sui_execution::executor(protocol_config, silent)
             .expect("Creating an executor should not fail here");
 
         let expensive_checks = false;
         let certificate_deny_set = HashSet::new();
         let transaction_data = &genesis_transaction.data().intent_message().value;
         let (kind, signer, _) = transaction_data.execution_parts();
-        let input_objects = InputObjects::new(vec![], vec![]);
+        let input_objects = CheckedInputObjects::new_for_genesis(vec![]);
         let (inner_temp_store, effects, _execution_error) = executor
             .execute_transaction_to_effects(
                 &InMemoryStorage::new(Vec::new()),
@@ -891,9 +905,7 @@ fn create_genesis_objects(
     );
 
     let silent = true;
-    // paranoid checks are a last line of defense for malicious code, no need to run them in genesis
-    let paranoid_checks = false;
-    let executor = sui_execution::executor(&protocol_config, paranoid_checks, silent)
+    let executor = sui_execution::executor(&protocol_config, silent)
         .expect("Creating an executor should not fail here");
 
     for system_package in system_packages.into_iter() {
@@ -963,9 +975,9 @@ fn process_package(
         .iter()
         .zip(dependency_objects)
         .filter_map(|(dependency, object)| {
-            Some((
+            Some(ObjectReadResult::new(
                 InputObjectKind::MovePackage(*dependency),
-                object?.to_owned(),
+                object?.clone().into(),
             ))
         })
         .collect();
@@ -989,7 +1001,7 @@ fn process_package(
         protocol_config,
         metrics,
         ctx,
-        InputObjects::new(loaded_dependencies, vec![]),
+        CheckedInputObjects::new_for_genesis(loaded_dependencies),
         pt,
     )?;
 
@@ -1007,12 +1019,9 @@ pub fn generate_genesis_system_object(
     token_distribution_schedule: &TokenDistributionSchedule,
     metrics: Arc<LimitsMetrics>,
 ) -> anyhow::Result<()> {
-    // We don't know the chain ID here since we haven't yet created the genesis checkpoint.
-    // However since we know there are no chain specific protocol config options in genesis,
-    // we use Chain::Unknown here.
     let protocol_config = ProtocolConfig::get_for_version(
         ProtocolVersion::new(genesis_chain_parameters.protocol_version),
-        sui_protocol_config::Chain::Unknown,
+        ChainIdentifier::default().chain(),
     );
 
     let pt = {
@@ -1035,13 +1044,31 @@ pub fn generate_genesis_system_object(
             vec![],
         )?;
 
-        // Step 3: Create the AuthenticatorState object, unless it has been disabled (which only
+        // Step 3: Create ProtocolConfig-controlled system objects, unless disabled (which only
         // happens in tests).
         if protocol_config.create_authenticator_state_in_genesis() {
             builder.move_call(
                 SUI_FRAMEWORK_ADDRESS.into(),
                 ident_str!("authenticator_state").to_owned(),
                 ident_str!("create").to_owned(),
+                vec![],
+                vec![],
+            )?;
+        }
+        if protocol_config.random_beacon() {
+            builder.move_call(
+                SUI_FRAMEWORK_ADDRESS.into(),
+                ident_str!("random").to_owned(),
+                ident_str!("create").to_owned(),
+                vec![],
+                vec![],
+            )?;
+        }
+        if protocol_config.enable_coin_deny_list() {
+            builder.move_call(
+                SUI_FRAMEWORK_ADDRESS.into(),
+                DENY_LIST_MODULE.to_owned(),
+                DENY_LIST_CREATE_FUNC.to_owned(),
                 vec![],
                 vec![],
             )?;
@@ -1084,7 +1111,7 @@ pub fn generate_genesis_system_object(
         &protocol_config,
         metrics,
         genesis_ctx,
-        InputObjects::new(vec![], vec![]),
+        CheckedInputObjects::new_for_genesis(vec![]),
         pt,
     )?;
 

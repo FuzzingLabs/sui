@@ -72,6 +72,8 @@ static_symbols!(
     "SUI",
     "authenticator_state",
     "AuthenticatorState",
+    "random",
+    "Random",
     "id",
     "transfer",
     "freeze_object",
@@ -79,6 +81,10 @@ static_symbols!(
     "event",
     "emit",
     "Receiving",
+    "receive",
+    "loop",
+    "deny_list",
+    "DenyList",
 );
 
 /// The global, unique cache of strings.

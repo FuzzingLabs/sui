@@ -69,6 +69,8 @@ pub struct PrimaryChannelMetrics {
     pub tx_new_certificates: IntGauge,
     /// occupancy of the channel signaling own committed headers
     pub tx_committed_own_headers: IntGauge,
+    /// occupancy of the channel from the `primary::PrimaryReceiverHandler` to the `primary::StateHandler`
+    pub tx_randomness_partial_signatures: IntGauge,
     /// An internal synchronizer channel. Occupancy of the channel sending certificates to the internal
     /// task that accepts certificates.
     pub tx_certificate_acceptor: IntGauge,
@@ -96,6 +98,8 @@ pub struct PrimaryChannelMetrics {
     pub tx_new_certificates_total: IntCounter,
     /// total received on the channel signaling own committed headers
     pub tx_committed_own_headers_total: IntCounter,
+    /// total received on the channel from the `primary::PrimaryReceiverHandler` to the `primary::StateHandler`
+    pub tx_randomness_partial_signatures_total: IntCounter,
     /// Total received by the channel sending certificates to the internal task that accepts certificates.
     pub tx_certificate_acceptor_total: IntCounter,
     /// Total received the channel to synchronize missing batches
@@ -172,6 +176,11 @@ impl PrimaryChannelMetrics {
                 "occupancy of the channel signaling own committed headers.",
                 registry
             ).unwrap(),
+            tx_randomness_partial_signatures: register_int_gauge_with_registry!(
+                "tx_randomness_partial_signatures",
+                "occupancy of the channel from the `primary::PrimaryReceiverHandler` to the `primary::StateHandler`",
+                registry
+            ).unwrap(),
             tx_certificate_acceptor: register_int_gauge_with_registry!(
                 "tx_certificate_acceptor",
                 "occupancy of the internal synchronizer channel that is accepting new certificates.",
@@ -232,6 +241,11 @@ impl PrimaryChannelMetrics {
             tx_committed_own_headers_total: register_int_counter_with_registry!(
                 "tx_committed_own_headers_total",
                 "total received on channel signaling own committed headers.",
+                registry
+            ).unwrap(),
+            tx_randomness_partial_signatures_total: register_int_counter_with_registry!(
+                "tx_randomness_partial_signatures_total",
+                "total received on the channel from the `primary::PrimaryReceiverHandler` to the `primary::StateHandler`",
                 registry
             ).unwrap(),
             tx_certificate_acceptor_total: register_int_counter_with_registry!(
@@ -346,6 +360,10 @@ pub struct PrimaryMetrics {
     pub fetched_certificates_verified_directly: IntCounter,
     // Total number of fetched certificates verified indirectly.
     pub fetched_certificates_verified_indirectly: IntCounter,
+    /// The number of shares held by this node after the random beacon DKG protocol completed.
+    pub state_handler_random_beacon_dkg_num_shares: IntGauge,
+    /// The randomness round that currently in progress.
+    pub state_handler_current_randomness_round: IntGauge,
 }
 
 impl PrimaryMetrics {
@@ -539,6 +557,16 @@ impl PrimaryMetrics {
             fetched_certificates_verified_indirectly: register_int_counter_with_registry!(
                 "fetched_certificates_verified_indirectly",
                 "Total number of fetched certificates verified indirectly.",
+                registry
+            ).unwrap(),
+            state_handler_random_beacon_dkg_num_shares: register_int_gauge_with_registry!(
+                "state_handler_random_beacon_dkg_num_shares",
+                "The number of shares held by this node after the random beacon DKG protocol completed.",
+                registry
+            ).unwrap(),
+            state_handler_current_randomness_round: register_int_gauge_with_registry!(
+                "state_handler_current_randomness_round",
+                "The randomness round that currently in progress.",
                 registry
             ).unwrap(),
         }

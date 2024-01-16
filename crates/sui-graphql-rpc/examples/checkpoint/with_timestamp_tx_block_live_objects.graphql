@@ -5,12 +5,12 @@
     sequenceNumber
     timestamp
     liveObjectSetDigest
-    transactionBlockConnection {
+    transactionBlocks {
       edges {
         node {
           digest
           sender {
-            location
+            address
           }
           expiration {
             epochId

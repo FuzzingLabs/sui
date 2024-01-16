@@ -3,6 +3,7 @@
 
 use std::str::FromStr;
 
+use crate::key_identity::KeyIdentity;
 use crate::keytool::read_authority_keypair_from_file;
 use crate::keytool::read_keypair_from_file;
 
@@ -45,11 +46,16 @@ async fn test_addresses_command() -> Result<(), anyhow::Error> {
 
     // Add another 3 Secp256k1 KeyPairs
     for _ in 0..3 {
-        keystore.add_key(SuiKeyPair::Secp256k1(get_key_pair().1))?;
+        keystore.add_key(None, SuiKeyPair::Secp256k1(get_key_pair().1))?;
     }
 
     // List all addresses with flag
-    KeyToolCommand::List.execute(&mut keystore).await.unwrap();
+    KeyToolCommand::List {
+        sort_by_alias: true,
+    }
+    .execute(&mut keystore)
+    .await
+    .unwrap();
     Ok(())
 }
 
@@ -57,8 +63,8 @@ async fn test_addresses_command() -> Result<(), anyhow::Error> {
 async fn test_flag_in_signature_and_keypair() -> Result<(), anyhow::Error> {
     let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
 
-    keystore.add_key(SuiKeyPair::Secp256k1(get_key_pair().1))?;
-    keystore.add_key(SuiKeyPair::Ed25519(get_key_pair().1))?;
+    keystore.add_key(None, SuiKeyPair::Secp256k1(get_key_pair().1))?;
+    keystore.add_key(None, SuiKeyPair::Ed25519(get_key_pair().1))?;
 
     for pk in keystore.keys() {
         let pk1 = pk.clone();
@@ -219,6 +225,7 @@ async fn test_private_keys_ed25519() -> Result<(), anyhow::Error> {
     for (private_key, base64, address) in TEST_CASES {
         let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
         KeyToolCommand::Import {
+            alias: None,
             input_string: private_key.to_string(),
             key_scheme: SignatureScheme::ED25519,
             derivation_path: None,
@@ -235,6 +242,7 @@ async fn test_private_keys_ed25519() -> Result<(), anyhow::Error> {
     for (private_key, _, _) in TEST_CASES {
         let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
         let output = KeyToolCommand::Import {
+            alias: None,
             input_string: private_key[..25].to_string(),
             key_scheme: SignatureScheme::ED25519,
             derivation_path: None,
@@ -257,6 +265,7 @@ async fn test_mnemonics_ed25519() -> Result<(), anyhow::Error> {
     for t in TEST_CASES {
         let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
         KeyToolCommand::Import {
+            alias: None,
             input_string: t[0].to_string(),
             key_scheme: SignatureScheme::ED25519,
             derivation_path: None,
@@ -281,6 +290,7 @@ async fn test_mnemonics_secp256k1() -> Result<(), anyhow::Error> {
     for t in TEST_CASES {
         let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
         KeyToolCommand::Import {
+            alias: None,
             input_string: t[0].to_string(),
             key_scheme: SignatureScheme::Secp256k1,
             derivation_path: None,
@@ -319,6 +329,7 @@ async fn test_mnemonics_secp256r1() -> Result<(), anyhow::Error> {
     for t in TEST_CASES {
         let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
         KeyToolCommand::Import {
+            alias: None,
             input_string: t[0].to_string(),
             key_scheme: SignatureScheme::Secp256r1,
             derivation_path: None,
@@ -340,6 +351,7 @@ async fn test_mnemonics_secp256r1() -> Result<(), anyhow::Error> {
 async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
     let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/44'/1'/0'/0/0".parse().unwrap()),
@@ -349,6 +361,7 @@ async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
     .is_err());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/0'/784'/0'/0/0".parse().unwrap()),
@@ -358,6 +371,7 @@ async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
     .is_err());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/54'/784'/0'/0/0".parse().unwrap()),
@@ -367,6 +381,7 @@ async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
     .is_err());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::Secp256k1,
         derivation_path: Some("m/54'/784'/0'/0'/0'".parse().unwrap()),
@@ -376,6 +391,7 @@ async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
     .is_err());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::Secp256k1,
         derivation_path: Some("m/44'/784'/0'/0/0".parse().unwrap()),
@@ -391,6 +407,7 @@ async fn test_invalid_derivation_path() -> Result<(), anyhow::Error> {
 async fn test_valid_derivation_path() -> Result<(), anyhow::Error> {
     let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(0));
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/44'/784'/0'/0'/0'".parse().unwrap()),
@@ -400,6 +417,7 @@ async fn test_valid_derivation_path() -> Result<(), anyhow::Error> {
     .is_ok());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/44'/784'/0'/0'/1'".parse().unwrap()),
@@ -409,6 +427,7 @@ async fn test_valid_derivation_path() -> Result<(), anyhow::Error> {
     .is_ok());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::ED25519,
         derivation_path: Some("m/44'/784'/1'/0'/1'".parse().unwrap()),
@@ -418,6 +437,7 @@ async fn test_valid_derivation_path() -> Result<(), anyhow::Error> {
     .is_ok());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::Secp256k1,
         derivation_path: Some("m/54'/784'/0'/0/1".parse().unwrap()),
@@ -427,6 +447,7 @@ async fn test_valid_derivation_path() -> Result<(), anyhow::Error> {
     .is_ok());
 
     assert!(KeyToolCommand::Import {
+        alias: None,
         input_string: TEST_MNEMONIC.to_string(),
         key_scheme: SignatureScheme::Secp256k1,
         derivation_path: Some("m/54'/784'/1'/0/1".parse().unwrap()),
@@ -456,6 +477,7 @@ async fn test_sign_command() -> Result<(), anyhow::Error> {
     let mut keystore = Keystore::from(InMemKeystore::new_insecure_for_tests(1));
     let binding = keystore.addresses();
     let sender = binding.first().unwrap();
+    let alias = keystore.get_alias_by_address(sender).unwrap();
 
     // Create a dummy TransactionData
     let gas = (
@@ -477,7 +499,7 @@ async fn test_sign_command() -> Result<(), anyhow::Error> {
 
     // Sign an intent message for the transaction data and a passed-in intent with scope as PersonalMessage.
     KeyToolCommand::Sign {
-        address: *sender,
+        address: KeyIdentity::Address(*sender),
         data: Base64::encode(bcs::to_bytes(&tx_data)?),
         intent: Some(Intent::sui_app(IntentScope::PersonalMessage)),
     }
@@ -486,7 +508,17 @@ async fn test_sign_command() -> Result<(), anyhow::Error> {
 
     // Sign an intent message for the transaction data without intent passed in, so default is used.
     KeyToolCommand::Sign {
-        address: *sender,
+        address: KeyIdentity::Address(*sender),
+        data: Base64::encode(bcs::to_bytes(&tx_data)?),
+        intent: None,
+    }
+    .execute(&mut keystore)
+    .await?;
+
+    // Sign an intent message for the transaction data without intent passed in, so default is used.
+    // Use alias for signing instead of the address
+    KeyToolCommand::Sign {
+        address: KeyIdentity::Alias(alias),
         data: Base64::encode(bcs::to_bytes(&tx_data)?),
         intent: None,
     }

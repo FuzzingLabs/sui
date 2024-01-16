@@ -136,14 +136,20 @@ impl AuthorityPerpetualTables {
     pub fn open(parent_path: &Path, db_options: Option<Options>) -> Self {
         Self::open_tables_read_write(
             Self::path(parent_path),
-            MetricConf::with_sampling(SamplingInterval::new(Duration::from_secs(60), 0)),
+            MetricConf::new("perpetual")
+                .with_sampling(SamplingInterval::new(Duration::from_secs(60), 0)),
             db_options,
             None,
         )
     }
 
     pub fn open_readonly(parent_path: &Path) -> AuthorityPerpetualTablesReadOnly {
-        Self::get_read_only_handle(Self::path(parent_path), None, None, MetricConf::default())
+        Self::get_read_only_handle(
+            Self::path(parent_path),
+            None,
+            None,
+            MetricConf::new("perpetual_readonly"),
+        )
     }
 
     // This is used by indexer to find the correct version of dynamic field child object.
@@ -156,14 +162,18 @@ impl AuthorityPerpetualTables {
     ) -> Option<Object> {
         let Ok(iter) = self
             .objects
-            .range_iter(ObjectKey::min_for_id(&object_id)..=ObjectKey::max_for_id(&object_id))
+            .safe_range_iter(ObjectKey::min_for_id(&object_id)..=ObjectKey::max_for_id(&object_id))
             .skip_prior_to(&ObjectKey(object_id, version))
         else {
             return None;
         };
-        iter.reverse()
-            .next()
-            .and_then(|(key, o)| self.object(&key, o).ok().flatten())
+        iter.reverse().next().and_then(|db_result| match db_result {
+            Ok((key, o)) => self.object(&key, o).ok().flatten(),
+            Err(err) => {
+                warn!("Object iterator encountered RocksDB error {:?}", err);
+                None
+            }
+        })
     }
 
     fn construct_object(

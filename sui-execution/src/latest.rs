@@ -17,22 +17,20 @@ use sui_types::{
     gas::SuiGasStatus,
     inner_temporary_store::InnerTemporaryStore,
     metrics::{BytecodeVerifierMetrics, LimitsMetrics},
-    transaction::{InputObjects, ProgrammableTransaction, TransactionKind},
+    transaction::{CheckedInputObjects, ProgrammableTransaction, TransactionKind},
     type_resolver::LayoutResolver,
 };
 
 use move_bytecode_verifier_latest::meter::Scope;
 use move_vm_runtime_latest::move_vm::MoveVM;
-use sui_adapter_latest::adapter::{
-    default_verifier_config, new_move_vm, run_metered_move_bytecode_verifier,
-};
+use sui_adapter_latest::adapter::{new_move_vm, run_metered_move_bytecode_verifier};
 use sui_adapter_latest::execution_engine::{
     execute_genesis_state_update, execute_transaction_to_effects,
 };
 use sui_adapter_latest::type_layout_resolver::TypeLayoutResolver;
 use sui_move_natives_latest::all_natives;
 use sui_types::storage::BackingStore;
-use sui_verifier_latest::meter::SuiVerifierMeter;
+use sui_verifier_latest::{default_verifier_config, meter::SuiVerifierMeter};
 
 use crate::executor;
 use crate::verifier;
@@ -47,15 +45,10 @@ pub(crate) struct Verifier<'m> {
 }
 
 impl Executor {
-    pub(crate) fn new(
-        protocol_config: &ProtocolConfig,
-        paranoid_type_checks: bool,
-        silent: bool,
-    ) -> Result<Self, SuiError> {
+    pub(crate) fn new(protocol_config: &ProtocolConfig, silent: bool) -> Result<Self, SuiError> {
         Ok(Executor(Arc::new(new_move_vm(
             all_natives(silent),
             protocol_config,
-            paranoid_type_checks,
         )?)))
     }
 }
@@ -86,7 +79,7 @@ impl executor::Executor for Executor {
         certificate_deny_set: &HashSet<TransactionDigest>,
         epoch_id: &EpochId,
         epoch_timestamp_ms: u64,
-        input_objects: InputObjects,
+        input_objects: CheckedInputObjects,
         gas_coins: Vec<ObjectRef>,
         gas_status: SuiGasStatus,
         transaction_kind: TransactionKind,
@@ -124,7 +117,7 @@ impl executor::Executor for Executor {
         certificate_deny_set: &HashSet<TransactionDigest>,
         epoch_id: &EpochId,
         epoch_timestamp_ms: u64,
-        input_objects: InputObjects,
+        input_objects: CheckedInputObjects,
         gas_coins: Vec<ObjectRef>,
         gas_status: SuiGasStatus,
         transaction_kind: TransactionKind,
@@ -159,7 +152,7 @@ impl executor::Executor for Executor {
         protocol_config: &ProtocolConfig,
         metrics: Arc<LimitsMetrics>,
         tx_context: &mut TxContext,
-        input_objects: InputObjects,
+        input_objects: CheckedInputObjects,
         pt: ProgrammableTransaction,
     ) -> Result<InnerTemporaryStore, ExecutionError> {
         execute_genesis_state_update(

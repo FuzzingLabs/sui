@@ -4,9 +4,9 @@
 use futures::future;
 use jsonrpsee::core::client::{ClientT, Subscription, SubscriptionClientT};
 use jsonrpsee::rpc_params;
+use move_core_types::annotated_value::MoveStructLayout;
 use move_core_types::ident_str;
 use move_core_types::parser::parse_struct_tag;
-use move_core_types::value::MoveStructLayout;
 use rand::rngs::OsRng;
 use serde_json::json;
 use std::sync::Arc;
@@ -32,15 +32,17 @@ use sui_tool::restore_from_db_checkpoint;
 use sui_types::base_types::{ObjectID, SuiAddress, TransactionDigest};
 use sui_types::base_types::{ObjectRef, SequenceNumber};
 use sui_types::crypto::{get_key_pair, SuiKeyPair};
+use sui_types::error::{SuiError, UserInputError};
 use sui_types::event::{Event, EventID};
 use sui_types::message_envelope::Message;
 use sui_types::messages_grpc::TransactionInfoRequest;
-use sui_types::object::{Object, ObjectRead, Owner, PastObjectRead};
+use sui_types::object::{MoveObject, Object, ObjectRead, Owner, PastObjectRead};
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::quorum_driver_types::{
     ExecuteTransactionRequest, ExecuteTransactionRequestType, ExecuteTransactionResponse,
     QuorumDriverResponse,
 };
+use sui_types::storage::ObjectStore;
 use sui_types::transaction::{
     CallArg, GasData, TransactionData, TransactionKind, TEST_ONLY_GAS_UNIT_FOR_OBJECT_BASICS,
     TEST_ONLY_GAS_UNIT_FOR_SPLIT_COIN, TEST_ONLY_GAS_UNIT_FOR_TRANSFER,
@@ -670,15 +672,15 @@ async fn test_full_node_sub_and_query_move_event_ok() -> Result<(), anyhow::Erro
         }
         other => panic!("Failed to get SuiEvent, but {:?}", other),
     };
-    let type_tag = parse_struct_tag(&struct_tag_str).unwrap();
-    let expected_parsed_event = Event::move_event_to_move_struct(
-        &type_tag,
-        &bcs,
+    let struct_tag = parse_struct_tag(&struct_tag_str).unwrap();
+    let layout = MoveObject::get_layout_from_struct_tag(
+        struct_tag.clone(),
         &**node.state().epoch_store_for_testing().module_cache(),
-    )
-    .unwrap();
+    )?;
+
+    let expected_parsed_event = Event::move_event_to_move_struct(&bcs, layout).unwrap();
     let (_, expected_parsed_event) =
-        type_and_fields_from_move_struct(&type_tag, expected_parsed_event);
+        type_and_fields_from_move_struct(&struct_tag, expected_parsed_event);
     let expected_event = SuiEvent {
         id: EventID {
             tx_digest: digest,
@@ -687,7 +689,7 @@ async fn test_full_node_sub_and_query_move_event_ok() -> Result<(), anyhow::Erro
         package_id,
         transaction_module: ident_str!("devnet_nft").into(),
         sender,
-        type_: type_tag,
+        type_: struct_tag,
         parsed_json: expected_parsed_event.to_json_value(),
         bcs,
         timestamp_ms: None,
@@ -919,11 +921,11 @@ async fn test_execute_tx_with_serialized_signature() -> Result<(), anyhow::Error
     context
         .config
         .keystore
-        .add_key(SuiKeyPair::Secp256k1(get_key_pair().1))?;
+        .add_key(None, SuiKeyPair::Secp256k1(get_key_pair().1))?;
     context
         .config
         .keystore
-        .add_key(SuiKeyPair::Ed25519(get_key_pair().1))?;
+        .add_key(None, SuiKeyPair::Ed25519(get_key_pair().1))?;
 
     let jsonrpc_client = &test_cluster.fullnode_handle.rpc_client;
 
@@ -1274,6 +1276,71 @@ async fn test_pass_back_no_object() -> Result<(), anyhow::Error> {
         },
     ) = rx.recv().await.unwrap().unwrap();
     Ok(())
+}
+
+#[sim_test]
+async fn test_access_old_object_pruned() {
+    // This test checks that when we ask a validator to handle a transaction that uses
+    // an old object that's already been pruned, it's able to return an non-retriable
+    // error ObjectVersionUnavailableForConsumption, instead of the retriable error
+    // ObjectNotFound.
+    let test_cluster = TestClusterBuilder::new().build().await;
+    let tx_builder = test_cluster.test_transaction_builder().await;
+    let sender = tx_builder.sender();
+    let gas_object = tx_builder.gas_object();
+    let effects = test_cluster
+        .sign_and_execute_transaction(&tx_builder.transfer_sui(None, sender).build())
+        .await
+        .effects
+        .unwrap();
+    let new_gas_version = effects.gas_object().reference.version;
+    test_cluster.trigger_reconfiguration().await;
+    // Construct a new transaction that uses the old gas object reference.
+    let tx = test_cluster.sign_transaction(
+        &test_cluster
+            .test_transaction_builder_with_gas_object(sender, gas_object)
+            .await
+            // Make sure we are doing something different from the first transaction.
+            // Otherwise we would just end up with the same digest.
+            .transfer_sui(Some(1), sender)
+            .build(),
+    );
+    for validator in test_cluster.swarm.active_validators() {
+        let state = validator.get_node_handle().unwrap().state();
+        state.prune_objects_and_compact_for_testing().await;
+        // Make sure the old version of the object is already pruned.
+        assert!(state
+            .db()
+            .get_object_by_key(&gas_object.0, gas_object.1)
+            .unwrap()
+            .is_none());
+        let epoch_store = state.epoch_store_for_testing();
+        assert_eq!(
+            state
+                .handle_transaction(
+                    &epoch_store,
+                    epoch_store.verify_transaction(tx.clone()).unwrap()
+                )
+                .await
+                .unwrap_err(),
+            SuiError::UserInputError {
+                error: UserInputError::ObjectVersionUnavailableForConsumption {
+                    provided_obj_ref: gas_object,
+                    current_version: new_gas_version,
+                }
+            }
+        );
+    }
+
+    // Check that fullnode would return the same error.
+    let result = test_cluster.wallet.execute_transaction_may_fail(tx).await;
+    assert!(result.unwrap_err().to_string().contains(
+        &UserInputError::ObjectVersionUnavailableForConsumption {
+            provided_obj_ref: gas_object,
+            current_version: new_gas_version,
+        }
+        .to_string()
+    ))
 }
 
 async fn transfer_coin(

@@ -14,6 +14,7 @@ bcs.workspace = true
 byteorder.workspace = true
 im.workspace = true
 itertools.workspace = true
+nonempty.workspace = true
 once_cell.workspace = true
 prometheus.workspace = true
 rand.workspace = true
@@ -58,7 +59,7 @@ sui-enum-compat-util.workspace = true
 fastcrypto = { workspace = true, features = ["copy_key"] }
 fastcrypto-zkp.workspace = true
 
-typed-store.workspace = true
+typed-store-error.workspace = true
 derive_more.workspace = true
 proptest.workspace = true
 proptest-derive.workspace = true

@@ -10,9 +10,6 @@ pub const DEFAULT_MAX_VALUE_NEST_DEPTH: u64 = 128;
 pub struct VMConfig {
     pub verifier: VerifierConfig,
     pub max_binary_format_version: u32,
-    // When this flag is set to true, MoveVM will perform type check at every instruction
-    // execution to ensure that type safety cannot be violated at runtime.
-    pub paranoid_type_checks: bool,
     pub runtime_limits_config: VMRuntimeLimitsConfig,
     // When this flag is set to true, MoveVM will check invariant violation in swap_loc
     pub enable_invariant_violation_check_in_swap_loc: bool,
@@ -32,7 +29,6 @@ impl Default for VMConfig {
         Self {
             verifier: VerifierConfig::default(),
             max_binary_format_version: VERSION_MAX,
-            paranoid_type_checks: false,
             runtime_limits_config: VMRuntimeLimitsConfig::default(),
             enable_invariant_violation_check_in_swap_loc: true,
             check_no_extraneous_bytes_during_deserialization: false,
@@ -49,6 +45,8 @@ pub struct VMRuntimeLimitsConfig {
     pub vector_len_max: u64,
     /// Maximum value nest depth for structs
     pub max_value_nest_depth: Option<u64>,
+    // include hardened OTW checks
+    pub hardened_otw_check: bool,
 }
 
 impl Default for VMRuntimeLimitsConfig {
@@ -56,6 +54,7 @@ impl Default for VMRuntimeLimitsConfig {
         Self {
             vector_len_max: DEFAULT_MAX_CONSTANT_VECTOR_LEN,
             max_value_nest_depth: Some(DEFAULT_MAX_VALUE_NEST_DEPTH),
+            hardened_otw_check: true,
         }
     }
 }

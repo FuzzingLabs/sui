@@ -5,8 +5,9 @@
 use crate::{
     diagnostics::WarningFilters,
     expansion::ast::{
-        ability_constraints_ast_debug, ability_modifiers_ast_debug, AbilitySet, Attributes, Fields,
-        Friend, ImplicitUseFunCandidate, ModuleIdent, SpecId, Value, Value_, Visibility,
+        ability_constraints_ast_debug, ability_modifiers_ast_debug, AbilitySet, Attributes,
+        DottedUsage, Fields, Friend, ImplicitUseFunCandidate, ModuleIdent, Value, Value_,
+        Visibility,
     },
     parser::ast::{
         Ability_, BinOp, ConstantName, Field, FunctionName, Mutability, StructName, UnaryOp,
@@ -35,7 +36,6 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Program_ {
     pub modules: UniqueMap<ModuleIdent, ModuleDefinition>,
-    pub scripts: BTreeMap<Symbol, Script>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -75,25 +75,6 @@ pub struct UseFuns {
 }
 
 //**************************************************************************************************
-// Scripts
-//**************************************************************************************************
-
-#[derive(Debug, Clone)]
-pub struct Script {
-    pub warning_filter: WarningFilters,
-    // package name metadata from compiler arguments, not used for any language rules
-    pub package_name: Option<Symbol>,
-    pub attributes: Attributes,
-    pub loc: Loc,
-    pub use_funs: UseFuns,
-    pub constants: UniqueMap<ConstantName, Constant>,
-    pub function_name: FunctionName,
-    pub function: Function,
-    // module dependencies referenced in specs
-    pub spec_dependencies: BTreeSet<(ModuleIdent, Neighbor)>,
-}
-
-//**************************************************************************************************
 // Modules
 //**************************************************************************************************
 
@@ -110,8 +91,6 @@ pub struct ModuleDefinition {
     pub structs: UniqueMap<StructName, StructDefinition>,
     pub constants: UniqueMap<ConstantName, Constant>,
     pub functions: UniqueMap<FunctionName, Function>,
-    // module dependencies referenced in specs
-    pub spec_dependencies: BTreeSet<(ModuleIdent, Neighbor)>,
 }
 
 //**************************************************************************************************
@@ -263,6 +242,9 @@ pub struct Var_ {
 }
 pub type Var = Spanned<Var_>;
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord)]
+pub struct BlockLabel(pub Var);
+
 #[derive(Debug, PartialEq, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum LValue_ {
@@ -297,10 +279,8 @@ pub type BuiltinFunction = Spanned<BuiltinFunction_>;
 #[allow(clippy::large_enum_variant)]
 pub enum Exp_ {
     Value(Value),
-    Move(Var),
-    Copy(Var),
-    Use(Var),
-    Constant(Option<ModuleIdent>, ConstantName),
+    Var(Var),
+    Constant(ModuleIdent, ConstantName),
 
     ModuleCall(
         ModuleIdent,
@@ -313,8 +293,9 @@ pub enum Exp_ {
     Vector(Loc, Option<Type>, Spanned<Vec<Exp>>),
 
     IfElse(Box<Exp>, Box<Exp>, Box<Exp>),
-    While(Box<Exp>, Box<Exp>),
-    Loop(Box<Exp>),
+    While(Box<Exp>, BlockLabel, Box<Exp>),
+    Loop(BlockLabel, Box<Exp>),
+    NamedBlock(BlockLabel, Sequence),
     Block(Sequence),
 
     Assign(LValueList, Box<Exp>),
@@ -323,8 +304,8 @@ pub enum Exp_ {
 
     Return(Box<Exp>),
     Abort(Box<Exp>),
-    Break,
-    Continue,
+    Give(BlockLabel, Box<Exp>),
+    Continue(BlockLabel),
 
     Dereference(Box<Exp>),
     UnaryExp(UnaryOp, Box<Exp>),
@@ -336,13 +317,10 @@ pub enum Exp_ {
         trailing: bool,
     },
 
-    DerefBorrow(ExpDotted),
-    Borrow(bool, ExpDotted),
+    ExpDotted(DottedUsage, ExpDotted),
 
     Cast(Box<Exp>, Type),
     Annotate(Box<Exp>, Type),
-
-    Spec(SpecId, BTreeSet<Var>),
 
     UnresolvedError,
 }
@@ -686,6 +664,11 @@ impl Type_ {
     }
 }
 
+impl Exp_ {
+    // base symbol to used when making names forunnamed loops
+    pub const LOOP_NAME_SYMBOL: Symbol = symbol!("loop");
+}
+
 impl Value_ {
     pub fn type_(&self, loc: Loc) -> Option<Type> {
         use Value_::*;
@@ -753,17 +736,11 @@ impl AstDebug for Program {
 
 impl AstDebug for Program_ {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self { modules, scripts } = self;
+        let Self { modules } = self;
         for (m, mdef) in modules.key_cloned_iter() {
             w.write(&format!("module {}", m));
             w.block(|w| mdef.ast_debug(w));
             w.new_line();
-        }
-
-        for (n, s) in scripts {
-            w.write(&format!("script {}", n));
-            w.block(|w| s.ast_debug(w));
-            w.new_line()
         }
     }
 }
@@ -837,38 +814,6 @@ impl AstDebug for UseFuns {
     }
 }
 
-impl AstDebug for Script {
-    fn ast_debug(&self, w: &mut AstWriter) {
-        let Script {
-            warning_filter,
-            package_name,
-            attributes,
-            loc: _loc,
-            use_funs,
-            constants,
-            function_name,
-            function,
-            spec_dependencies,
-        } = self;
-        warning_filter.ast_debug(w);
-        if let Some(n) = package_name {
-            w.writeln(&format!("{}", n))
-        }
-        attributes.ast_debug(w);
-        use_funs.ast_debug(w);
-        for (m, neighbor) in spec_dependencies {
-            w.write(&format!("spec_dep {m} is"));
-            neighbor.ast_debug(w);
-            w.writeln(";");
-        }
-        for cdef in constants.key_cloned_iter() {
-            cdef.ast_debug(w);
-            w.new_line();
-        }
-        (*function_name, function).ast_debug(w);
-    }
-}
-
 impl AstDebug for ModuleDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
         let ModuleDefinition {
@@ -882,7 +827,6 @@ impl AstDebug for ModuleDefinition {
             structs,
             constants,
             functions,
-            spec_dependencies,
         } = self;
         warning_filter.ast_debug(w);
         if let Some(n) = package_name {
@@ -895,11 +839,6 @@ impl AstDebug for ModuleDefinition {
             w.writeln("source module")
         }
         use_funs.ast_debug(w);
-        for (m, neighbor) in spec_dependencies {
-            w.write(&format!("spec_dep {m} is"));
-            neighbor.ast_debug(w);
-            w.writeln(";");
-        }
         for (mident, _loc) in friends.key_cloned_iter() {
             w.write(&format!("friend {};", mident));
             w.new_line();
@@ -1013,6 +952,19 @@ impl AstDebug for Var_ {
         let id = *id;
         let color = *color;
         w.write(&format!("{name}"));
+        if id != 0 {
+            w.write(&format!("#{id}"));
+        }
+        if color != 0 {
+            w.write(&format!("#{color}"));
+        }
+    }
+}
+
+impl AstDebug for BlockLabel {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        let Var_ { name, id, color } = self.0.value;
+        w.write(&format!("'{name}"));
         if id != 0 {
             w.write(&format!("#{id}"));
         }
@@ -1204,17 +1156,8 @@ impl AstDebug for Exp_ {
                 trailing: _trailing,
             } => w.write("/*()*/"),
             E::Value(v) => v.ast_debug(w),
-            E::Move(v) => {
-                w.write("move ");
-                v.ast_debug(w)
-            }
-            E::Copy(v) => {
-                w.write("copy ");
-                v.ast_debug(w)
-            }
-            E::Use(v) => v.ast_debug(w),
-            E::Constant(None, c) => w.write(&format!("{}", c)),
-            E::Constant(Some(m), c) => w.write(&format!("{}::{}", m, c)),
+            E::Var(v) => v.ast_debug(w),
+            E::Constant(m, c) => w.write(&format!("{}::{}", m, c)),
             E::ModuleCall(m, f, tys_opt, sp!(_, rhs)) => {
                 w.write(&format!("{}::{}", m, f));
                 if let Some(ss) = tys_opt {
@@ -1278,15 +1221,25 @@ impl AstDebug for Exp_ {
                 w.write(" else ");
                 f.ast_debug(w);
             }
-            E::While(b, e) => {
-                w.write("while (");
+            E::While(b, name, e) => {
+                w.write("while ");
+                w.write(" (");
                 b.ast_debug(w);
-                w.write(")");
+                w.write(") ");
+                name.ast_debug(w);
+                w.write(": ");
                 e.ast_debug(w);
             }
-            E::Loop(e) => {
+            E::Loop(name, e) => {
                 w.write("loop ");
+                name.ast_debug(w);
+                w.write(": ");
                 e.ast_debug(w);
+            }
+            E::NamedBlock(name, seq) => {
+                name.ast_debug(w);
+                w.write(": ");
+                seq.ast_debug(w);
             }
             E::Block(seq) => seq.ast_debug(w),
             E::ExpList(es) => {
@@ -1320,8 +1273,16 @@ impl AstDebug for Exp_ {
                 w.write("abort ");
                 e.ast_debug(w);
             }
-            E::Break => w.write("break"),
-            E::Continue => w.write("continue"),
+            E::Give(name, e) => {
+                w.write("give @");
+                name.ast_debug(w);
+                w.write(" ");
+                e.ast_debug(w);
+            }
+            E::Continue(name) => {
+                w.write("continue @");
+                name.ast_debug(w);
+            }
             E::Dereference(e) => {
                 w.write("*");
                 e.ast_debug(w)
@@ -1338,15 +1299,15 @@ impl AstDebug for Exp_ {
                 w.write(" ");
                 r.ast_debug(w)
             }
-            E::Borrow(mut_, e) => {
-                w.write("&");
-                if *mut_ {
-                    w.write("mut ");
-                }
-                e.ast_debug(w);
-            }
-            E::DerefBorrow(ed) => {
-                w.write("(&*)");
+            E::ExpDotted(usage, ed) => {
+                let case = match usage {
+                    DottedUsage::Move(_) => "move ",
+                    DottedUsage::Copy(_) => "copy ",
+                    DottedUsage::Use => "use ",
+                    DottedUsage::Borrow(false) => "&",
+                    DottedUsage::Borrow(true) => "&mut ",
+                };
+                w.write(case);
                 ed.ast_debug(w)
             }
             E::Cast(e, ty) => {
@@ -1362,14 +1323,6 @@ impl AstDebug for Exp_ {
                 w.write(": ");
                 ty.ast_debug(w);
                 w.write(")");
-            }
-            E::Spec(u, used_locals) => {
-                w.write(&format!("spec #{}", u));
-                if !used_locals.is_empty() {
-                    w.write("uses [");
-                    w.comma(used_locals, |w, n| n.ast_debug(w));
-                    w.write("]");
-                }
             }
             E::UnresolvedError => w.write("_|_"),
         }

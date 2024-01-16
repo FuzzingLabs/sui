@@ -200,8 +200,9 @@ impl<'a> TestAuthorityBuilder<'a> {
         let epoch_start_configuration = EpochStartConfiguration::new(
             genesis.sui_system_object().into_epoch_start_state(),
             *genesis.checkpoint().digest(),
-            genesis.authenticator_state_obj_initial_shared_version(),
-        );
+            &genesis.objects(),
+        )
+        .unwrap();
         let expensive_safety_checks = match self.expensive_safety_checks {
             None => ExpensiveSafetyCheckConfig::default(),
             Some(config) => config,
@@ -252,7 +253,8 @@ impl<'a> TestAuthorityBuilder<'a> {
             .protocol_config()
             .simplified_unwrap_then_delete()
         {
-            pruning_config.set_enable_pruning_tombstones(false);
+            // We cannot prune tombstones if simplified_unwrap_then_delete is not enabled.
+            pruning_config.set_killswitch_tombstone_pruning(true);
         }
         let state = AuthorityState::new(
             name,

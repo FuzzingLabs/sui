@@ -1,5 +1,68 @@
 # @mysten/deepbook
 
+## 0.6.1
+
+### Patch Changes
+
+- 9ac0a4ec01: Add extensions to all sdk import paths
+- Updated dependencies [9ac0a4ec01]
+  - @mysten/sui.js@0.49.1
+
+## 0.6.0
+
+### Minor Changes
+
+- 950d50f2cf: Changed getCoinType function to public so that it is testable
+- e5f9e3ba21: Replace tsup based build to fix issues with esm/cjs dual publishing
+
+### Patch Changes
+
+- Updated dependencies [e5f9e3ba21]
+  - @mysten/sui.js@0.49.0
+
+## 0.5.12
+
+### Patch Changes
+
+- Updated dependencies [dd362ec1d6]
+  - @mysten/sui.js@0.48.1
+
+## 0.5.11
+
+### Patch Changes
+
+- Updated dependencies [cdcfa76c43]
+  - @mysten/sui.js@0.48.0
+
+## 0.5.10
+
+### Patch Changes
+
+- Updated dependencies [194c980cb]
+- Updated dependencies [9ac7e2f3d]
+- Updated dependencies [0259aec82]
+- Updated dependencies [64d45ba27]
+  - @mysten/sui.js@0.47.0
+
+## 0.5.9
+
+### Patch Changes
+
+- Updated dependencies [652bcdd92]
+  - @mysten/sui.js@0.46.1
+
+## 0.5.8
+
+### Patch Changes
+
+- 43444c58f: Extend the `TransactionBlock#object()` API to accept the `TransactionResult` type as well, so that it can be used flexibly in SDKs.
+- Updated dependencies [28c2c3330]
+- Updated dependencies [43444c58f]
+- Updated dependencies [8d1e74e52]
+- Updated dependencies [093554a0d]
+- Updated dependencies [3718a230b]
+  - @mysten/sui.js@0.46.0
+
 ## 0.5.7
 
 ### Patch Changes

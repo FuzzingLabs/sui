@@ -10,13 +10,14 @@ mod checked {
     use crate::gas::{self, GasCostSummary, SuiGasStatusAPI};
     use crate::gas_model::gas_predicates::{cost_table_for_version, txn_base_cost_as_multiplier};
     use crate::gas_model::units_types::CostTable;
+    use crate::transaction::ObjectReadResult;
     use crate::{
         error::{ExecutionError, ExecutionErrorKind},
         gas_model::tables::{GasStatus, ZERO_COST_SCHEDULE},
-        object::{Object, Owner},
     };
     use move_core_types::vm_status::StatusCode;
     use sui_protocol_config::*;
+    use tracing::trace;
 
     /// A bucket defines a range of units that will be priced the same.
     /// After execution a call to `GasStatus::bucketize` will round the computation
@@ -272,21 +273,34 @@ mod checked {
             )
         }
 
+        pub fn log_for_replay(&self) {
+            #[skip_checked_arithmetic]
+            trace!(target:"replay", "Reference Gas Price: {}", self.reference_gas_price);
+
+            self.gas_status.log_for_replay();
+        }
+
         // Check whether gas arguments are legit:
         // 1. Gas object has an address owner.
         // 2. Gas budget is between min and max budget allowed
         // 3. Gas balance (all gas coins together) is bigger or equal to budget
         pub(crate) fn check_gas_balance(
             &self,
-            gas_objs: &[&Object],
+            gas_objs: &[&ObjectReadResult],
             gas_budget: u64,
         ) -> UserInputResult {
             // 1. All gas objects have an address owner
             for gas_object in gas_objs {
-                if !(matches!(gas_object.owner, Owner::AddressOwner(_))) {
-                    return Err(UserInputError::GasObjectNotOwnedObject {
-                        owner: gas_object.owner,
-                    });
+                // if as_object() returns None, it means the object has been deleted (and therefore
+                // must be a shared object).
+                if let Some(obj) = gas_object.as_object() {
+                    if !obj.is_address_owned() {
+                        return Err(UserInputError::GasObjectNotOwnedObject { owner: obj.owner });
+                    }
+                } else {
+                    // This case should never happen (because gas can't be a shared object), but we
+                    // handle this case for future-proofing
+                    return Err(UserInputError::MissingGasPayment);
                 }
             }
 
@@ -307,7 +321,10 @@ mod checked {
             // 3. Gas balance (all gas coins together) is bigger or equal to budget
             let mut gas_balance = 0u128;
             for gas_obj in gas_objs {
-                gas_balance += gas::get_gas_balance(gas_obj)? as u128;
+                // expect is safe because we already checked that all gas objects have an address owner
+                gas_balance +=
+                    gas::get_gas_balance(gas_obj.as_object().expect("object must be owned"))?
+                        as u128;
             }
             if gas_balance < gas_budget as u128 {
                 Err(UserInputError::GasBalanceTooLow {

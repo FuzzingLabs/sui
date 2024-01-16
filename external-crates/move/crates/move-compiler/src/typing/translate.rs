@@ -11,13 +11,16 @@ use crate::{
     diagnostics::{codes::*, Diagnostic},
     editions::{FeatureGate, Flavor},
     expansion::ast::{
-        AttributeName_, AttributeValue_, Attribute_, Attributes, Fields, Friend, ModuleAccess_,
-        ModuleIdent, ModuleIdent_, Value_, Visibility,
+        AttributeName_, AttributeValue_, Attribute_, Attributes, DottedUsage, Fields, Friend,
+        ModuleAccess_, ModuleIdent, ModuleIdent_, Value_, Visibility,
     },
-    naming::ast::{self as N, TParam, TParamID, Type, TypeName_, Type_},
-    parser::ast::{Ability_, BinOp_, ConstantName, Field, FunctionName, StructName, UnaryOp_},
+    naming::ast::{self as N, BlockLabel, TParam, TParamID, Type, TypeName_, Type_},
+    parser::ast::{
+        Ability_, BinOp, BinOp_, ConstantName, Field, FunctionName, StructName, UnaryOp_,
+    },
     shared::{
         known_attributes::{KnownAttribute, TestingAttribute},
+        process_binops,
         program_info::TypingProgramInfo,
         unique_map::UniqueMap,
         *,
@@ -31,7 +34,6 @@ use crate::{
     FullyCompiledProgram,
 };
 use move_ir_types::location::*;
-use move_symbol_pool::Symbol;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 //**************************************************************************************************
@@ -45,22 +47,18 @@ pub fn program(
 ) -> T::Program {
     let N::Program {
         info,
-        inner: N::Program_ {
-            modules: nmodules,
-            scripts: nscripts,
-        },
+        inner: N::Program_ { modules: nmodules },
     } = prog;
     let mut context = Context::new(compilation_env, pre_compiled_lib, info);
 
     // we extract module use funs into the module info context
     let mut modules = modules(&mut context, nmodules);
-    let mut scripts = scripts(&mut context, nscripts);
 
     assert!(context.constraints.is_empty());
-    dependency_ordering::program(context.env, &mut modules, &mut scripts);
+    dependency_ordering::program(context.env, &mut modules);
     recursive_structs::modules(context.env, &modules);
     infinite_instantiations::modules(context.env, &modules);
-    let mut prog = T::Program_ { modules, scripts };
+    let mut prog = T::Program_ { modules };
     let module_use_funs = context
         .modules
         .modules
@@ -119,7 +117,6 @@ fn module(
     ident: ModuleIdent,
     mdef: N::ModuleDefinition,
 ) -> (T::ModuleDefinition, BTreeSet<(ModuleIdent, Loc)>) {
-    assert!(context.current_script_constants.is_none());
     assert!(context.current_package.is_none());
 
     let N::ModuleDefinition {
@@ -133,7 +130,6 @@ fn module(
         mut structs,
         functions: nfunctions,
         constants: nconstants,
-        spec_dependencies,
     } = mdef;
     context.current_module = Some(ident);
     context.current_package = package_name;
@@ -144,7 +140,7 @@ fn module(
         .for_each(|(_, _, s)| struct_def(context, s));
     process_attributes(context, &attributes);
     let constants = nconstants.map(|name, c| constant(context, name, c));
-    let functions = nfunctions.map(|name, f| function(context, name, f, false));
+    let functions = nfunctions.map(|name, f| function(context, name, f));
     assert!(context.constraints.is_empty());
     context.current_package = None;
     context.pop_use_funs_scope();
@@ -162,73 +158,17 @@ fn module(
         structs,
         constants,
         functions,
-        spec_dependencies,
     };
     // get the list of new friends and reset the list.
     let new_friends = std::mem::take(&mut context.new_friends);
     (typed_module, new_friends)
 }
 
-fn scripts(
-    context: &mut Context,
-    nscripts: BTreeMap<Symbol, N::Script>,
-) -> BTreeMap<Symbol, T::Script> {
-    nscripts
-        .into_iter()
-        .map(|(n, s)| (n, script(context, s)))
-        .collect()
-}
-
-fn script(context: &mut Context, nscript: N::Script) -> T::Script {
-    assert!(context.current_script_constants.is_none());
-    assert!(context.current_package.is_none());
-    context.current_module = None;
-    let N::Script {
-        warning_filter,
-        package_name,
-        attributes,
-        loc,
-        use_funs,
-        constants: nconstants,
-        function_name,
-        function: nfunction,
-        spec_dependencies,
-    } = nscript;
-    context.current_package = package_name;
-    context.env.add_warning_filter_scope(warning_filter.clone());
-    context.add_use_funs_scope(use_funs);
-    context.bind_script_constants(&nconstants);
-    let constants = nconstants.map(|name, c| constant(context, name, c));
-    let function = function(context, function_name, nfunction, true);
-    context.current_script_constants = None;
-    context.current_package = None;
-    context.pop_use_funs_scope();
-    context.env.pop_warning_filter_scope();
-    T::Script {
-        warning_filter,
-        package_name,
-        attributes,
-        loc,
-        immediate_neighbors: UniqueMap::new(),
-        used_addresses: BTreeSet::new(),
-        constants,
-        function_name,
-        function,
-        spec_dependencies,
-    }
-}
-
 //**************************************************************************************************
 // Functions
 //**************************************************************************************************
 
-fn function(
-    context: &mut Context,
-    name: FunctionName,
-    f: N::Function,
-    is_script: bool,
-) -> T::Function {
-    let loc = name.loc();
+fn function(context: &mut Context, name: FunctionName, f: N::Function) -> T::Function {
     let N::Function {
         warning_filter,
         index,
@@ -249,23 +189,6 @@ fn function(
             None => visibility,
         };
     function_signature(context, &signature);
-    if is_script {
-        let mk_msg = || {
-            let tu = core::error_format_(&Type_::Unit, &Subst::empty());
-            format!(
-                "Invalid 'script' function return type. The function entry point to a \
-                 'script' must have the return type {}",
-                tu
-            )
-        };
-        subtype(
-            context,
-            loc,
-            mk_msg,
-            signature.return_type.clone(),
-            sp(loc, Type_::Unit),
-        );
-    }
     expand::function_signature(context, &mut signature);
 
     let body = function_body(context, n_body);
@@ -462,7 +385,7 @@ mod check_valid_constant {
             //*****************************************
             // Error cases handled elsewhere
             //*****************************************
-            E::Use(_) | E::Continue | E::Break | E::UnresolvedError => return,
+            E::Use(_) | E::Continue(_) | E::Give(_, _) | E::UnresolvedError => return,
 
             //*****************************************
             // Valid cases
@@ -503,7 +426,6 @@ mod check_valid_constant {
             //*****************************************
             // Invalid cases
             //*****************************************
-            E::Spec(_, _) => "Spec blocks are",
             E::BorrowLocal(_, _) => REFERENCE_CASE,
             E::ModuleCall(call) => {
                 exp(context, &call.arguments);
@@ -520,7 +442,7 @@ mod check_valid_constant {
                 exp(context, ef);
                 "'if' expressions are"
             }
-            E::While(eb, eloop) => {
+            E::While(eb, _, eloop) => {
                 exp(context, eb);
                 exp(context, eloop);
                 "'while' expressions are"
@@ -528,6 +450,10 @@ mod check_valid_constant {
             E::Loop { body: eloop, .. } => {
                 exp(context, eloop);
                 "'loop' expressions are"
+            }
+            E::NamedBlock(_, seq) => {
+                sequence(context, seq);
+                "named 'block' expressions are"
             }
             E::Assign(_assigns, _tys, er) => {
                 exp(context, er);
@@ -1129,157 +1055,28 @@ fn exp(context: &mut Context, ne: Box<N::Exp>) -> Box<T::Exp> {
     Box::new(exp_(context, *ne))
 }
 
-fn exp_(context: &mut Context, initial_ne: N::Exp) -> T::Exp {
+fn exp_(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
     use N::Exp_ as NE;
     use T::UnannotatedExp_ as TE;
-    struct Stack<'a, 'env> {
-        frames: Vec<Box<dyn FnOnce(&mut Self)>>,
-        operands: Vec<T::Exp>,
-        context: &'a mut Context<'env>,
-    }
-    macro_rules! inner {
-        ($e:expr) => {{
-            move |s: &mut Stack| exp_loop(s, $e)
-        }};
-    }
-    fn exp_loop(stack: &mut Stack, sp!(loc, cur_): N::Exp) {
-        match cur_ {
-            NE::BinopExp(nlhs, bop, nrhs) => {
-                let f_lhs = inner!(*nlhs);
-                let f_rhs = inner!(*nrhs);
-                let f_binop = move |s: &mut Stack| {
-                    let er = Box::new(s.operands.pop().unwrap());
-                    let el = Box::new(s.operands.pop().unwrap());
-                    use BinOp_::*;
-                    let msg = || format!("Incompatible arguments to '{}'", &bop);
-                    let context = &mut s.context;
-                    let (ty, operand_ty) = match &bop.value {
-                        Sub | Add | Mul | Mod | Div => {
-                            context.add_numeric_constraint(
-                                el.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            context.add_numeric_constraint(
-                                er.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            let operand_ty =
-                                join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
-                            (operand_ty.clone(), operand_ty)
-                        }
 
-                        BitOr | BitAnd | Xor => {
-                            context.add_bits_constraint(
-                                el.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            context.add_bits_constraint(
-                                er.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            let operand_ty =
-                                join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
-                            (operand_ty.clone(), operand_ty)
-                        }
-
-                        Shl | Shr => {
-                            let msg = || format!("Invalid argument to '{}'", &bop);
-                            let u8ty = Type_::u8(er.exp.loc);
-                            context.add_bits_constraint(
-                                el.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            subtype(context, er.exp.loc, msg, er.ty.clone(), u8ty);
-                            (el.ty.clone(), el.ty.clone())
-                        }
-
-                        Lt | Gt | Le | Ge => {
-                            context.add_ordered_constraint(
-                                el.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            context.add_ordered_constraint(
-                                er.exp.loc,
-                                bop.value.symbol(),
-                                el.ty.clone(),
-                            );
-                            let operand_ty =
-                                join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
-                            (Type_::bool(loc), operand_ty)
-                        }
-
-                        Eq | Neq => {
-                            let ability_msg = Some(format!(
-                                "'{}' requires the '{}' ability as the value is consumed. Try \
-                                 borrowing the values with '&' first.'",
-                                &bop,
-                                Ability_::Drop,
-                            ));
-                            context.add_ability_constraint(
-                                el.exp.loc,
-                                ability_msg.clone(),
-                                el.ty.clone(),
-                                Ability_::Drop,
-                            );
-                            context.add_ability_constraint(
-                                er.exp.loc,
-                                ability_msg,
-                                er.ty.clone(),
-                                Ability_::Drop,
-                            );
-                            let ty = join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
-                            context.add_single_type_constraint(loc, msg(), ty.clone());
-                            (Type_::bool(loc), ty)
-                        }
-
-                        And | Or => {
-                            let msg = || format!("Invalid argument to '{}'", &bop);
-                            let lloc = el.exp.loc;
-                            subtype(context, lloc, msg, el.ty.clone(), Type_::bool(bop.loc));
-                            let rloc = er.exp.loc;
-                            subtype(context, rloc, msg, er.ty.clone(), Type_::bool(bop.loc));
-                            (Type_::bool(loc), Type_::bool(loc))
-                        }
-
-                        Range | Implies | Iff => panic!("specification operator unexpected"),
-                    };
-                    let binop =
-                        T::exp(ty, sp(loc, TE::BinopExp(el, bop, Box::new(operand_ty), er)));
-                    s.operands.push(binop)
-                };
-
-                stack.frames.push(Box::new(f_binop));
-                stack.frames.push(Box::new(f_rhs));
-                stack.frames.push(Box::new(f_lhs));
+    if matches!(ne_, NE::BinopExp(..)) {
+        return process_binops!(
+            (BinOp, Loc),
+            T::Exp,
+            sp(eloc, ne_),
+            sp!(loc, cur_),
+            cur_,
+            NE::BinopExp(lhs, op, rhs) => { (*lhs, (op, loc), *rhs) },
+            { exp_(context, sp(loc, cur_)) },
+            value_stack,
+            (bop, loc) => {
+                let el = value_stack.pop().expect("ICE binop typing issue");
+                let er = value_stack.pop().expect("ICE binop typing issue");
+                binop(context, el, bop, loc, er)
             }
-            cur_ => stack.operands.push(exp_inner(stack.context, sp(loc, cur_))),
-        }
+        );
     }
 
-    let mut stack = Stack {
-        frames: vec![],
-        operands: vec![],
-        context,
-    };
-    exp_loop(&mut stack, initial_ne);
-    while let Some(f) = stack.frames.pop() {
-        f(&mut stack)
-    }
-    let e_res = stack.operands.pop().unwrap();
-    assert!(stack.frames.is_empty());
-    assert!(stack.operands.is_empty());
-    e_res
-}
-
-fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
-    use N::Exp_ as NE;
-    use T::UnannotatedExp_ as TE;
     let (ty, e_) = match ne_ {
         NE::Unit { trailing } => (sp(eloc, Type_::Unit), TE::Unit { trailing }),
         NE::Value(sp!(vloc, Value_::InferredNum(v))) => (
@@ -1290,36 +1087,15 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
 
         NE::Constant(m, c) => {
             let ty = core::make_constant_type(context, eloc, &m, &c);
-            if let Some(mident) = m {
-                context
-                    .used_module_members
-                    .entry(mident.value)
-                    .or_default()
-                    .insert(c.value());
-            }
+            context
+                .used_module_members
+                .entry(m.value)
+                .or_default()
+                .insert(c.value());
             (ty, TE::Constant(m, c))
         }
 
-        NE::Move(var) => {
-            let ty = context.get_local_type(&var);
-            let from_user = true;
-            (ty, TE::Move { var, from_user })
-        }
-        NE::Copy(var) => {
-            let ty = context.get_local_type(&var);
-            context.add_ability_constraint(
-                eloc,
-                Some(format!(
-                    "Invalid 'copy' of owned value without the '{}' ability",
-                    Ability_::Copy
-                )),
-                ty.clone(),
-                Ability_::Copy,
-            );
-            let from_user = true;
-            (ty, TE::Copy { var, from_user })
-        }
-        NE::Use(var) => {
+        NE::Var(var) => {
             let ty = context.get_local_type(&var);
             (ty, TE::Use(var))
         }
@@ -1378,7 +1154,7 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
             );
             (ty, TE::IfElse(eb, et, ef))
         }
-        NE::While(nb, nloop) => {
+        NE::While(nb, name, nloop) => {
             let eb = exp(context, nb);
             let bloc = eb.exp.loc;
             subtype(
@@ -1388,13 +1164,33 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
                 eb.ty.clone(),
                 Type_::bool(bloc),
             );
-            let (_has_break, ty, body) = loop_body(context, eloc, false, nloop);
-            (sp(eloc, ty.value), TE::While(eb, body))
+            let (_has_break, ty, body) = loop_body(context, eloc, name, false, nloop);
+            (sp(eloc, ty.value), TE::While(eb, name, body))
         }
-        NE::Loop(nloop) => {
-            let (has_break, ty, body) = loop_body(context, eloc, true, nloop);
-            let eloop = TE::Loop { has_break, body };
+        NE::Loop(name, nloop) => {
+            let (has_break, ty, body) = loop_body(context, eloc, name, true, nloop);
+            let eloop = TE::Loop {
+                name,
+                has_break,
+                body,
+            };
             (sp(eloc, ty.value), eloop)
+        }
+        NE::NamedBlock(name, body) => {
+            let seq = sequence(context, body);
+            let seq_ty = sequence_type(&seq).clone();
+            let final_type = if let Some(local_return_type) = context.named_block_type_opt(name) {
+                join(
+                    context,
+                    eloc,
+                    || "Invalid named block",
+                    seq_ty,
+                    local_return_type,
+                )
+            } else {
+                seq_ty
+            };
+            (sp(eloc, final_type.value), TE::NamedBlock(name, seq))
         }
         NE::Block(nseq) => {
             let seq = sequence(context, nseq);
@@ -1436,34 +1232,19 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
             subtype(context, eloc, || "Invalid abort", ecode.ty.clone(), code_ty);
             (sp(eloc, Type_::Anything), TE::Abort(ecode))
         }
-        NE::Break => {
-            if !context.in_loop() {
-                let msg = "Invalid usage of 'break'. 'break' can only be used inside a loop body";
-                context
-                    .env
-                    .add_diag(diag!(TypeSafety::InvalidLoopControl, (eloc, msg)))
-            }
-            let current_break_ty = sp(eloc, Type_::Unit);
-            let break_ty = match context.get_break_type() {
-                None => current_break_ty,
-                Some(t) => {
-                    let t = t.clone();
-                    join(context, eloc, || "Invalid break.", t, current_break_ty)
-                }
-            };
-            context.set_break_type(break_ty);
-            (sp(eloc, Type_::Anything), TE::Break)
+        NE::Give(name, rhs) => {
+            let break_rhs = exp(context, rhs);
+            let loop_ty = context.named_block_type(name, eloc);
+            subtype(
+                context,
+                eloc,
+                || "Invalid break",
+                break_rhs.ty.clone(),
+                loop_ty,
+            );
+            (sp(eloc, Type_::Anything), TE::Give(name, break_rhs))
         }
-        NE::Continue => {
-            if !context.in_loop() {
-                let msg =
-                    "Invalid usage of 'continue'. 'continue' can only be used inside a loop body";
-                context
-                    .env
-                    .add_diag(diag!(TypeSafety::InvalidLoopControl, (eloc, msg)))
-            }
-            (sp(eloc, Type_::Anything), TE::Continue)
-        }
+        NE::Continue(name) => (sp(eloc, Type_::Anything), TE::Continue(name)),
 
         NE::Dereference(nref) => {
             let eref = exp(context, nref);
@@ -1553,8 +1334,13 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
             (bt, TE::Pack(m, n, targs, tfields))
         }
 
-        NE::Borrow(mut_, sp!(_, N::ExpDotted_::Exp(ner))) => {
+        NE::ExpDotted(DottedUsage::Use, sp!(_, N::ExpDotted_::Exp(ner))) => {
             let er = exp_(context, *ner);
+            (er.ty, er.exp.value)
+        }
+        NE::ExpDotted(DottedUsage::Borrow(mut_), sp!(_, N::ExpDotted_::Exp(ner))) => {
+            let er = exp_(context, *ner);
+            warn_on_constant_borrow(context, eloc, &er);
             context.add_base_type_constraint(eloc, "Invalid borrow", er.ty.clone());
             let ty = sp(eloc, Type_::Ref(mut_, Box::new(er.ty.clone())));
             let eborrow = match er.exp {
@@ -1568,18 +1354,81 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
             };
             (ty, eborrow)
         }
+        NE::ExpDotted(DottedUsage::Move(loc), sp!(_, N::ExpDotted_::Exp(ner))) => {
+            let er = exp_(context, *ner);
 
-        NE::Borrow(mut_, ndotted) => {
+            match er.exp.value {
+                TE::Use(var) => (
+                    er.ty,
+                    TE::Move {
+                        var,
+                        from_user: true,
+                    },
+                ),
+                TE::UnresolvedError => (er.ty, TE::UnresolvedError),
+                er_ => {
+                    let msg = if matches!(er_, TE::Constant(_, _)) {
+                        "Invalid 'move'. Cannot 'move' constants"
+                    } else {
+                        "Invalid 'move'. Expected a variable or path."
+                    };
+                    context
+                        .env
+                        .add_diag(diag!(TypeSafety::InvalidMoveOp, (loc, msg)));
+                    (context.error_type(eloc), TE::UnresolvedError)
+                }
+            }
+        }
+        NE::ExpDotted(DottedUsage::Copy(loc), sp!(_, N::ExpDotted_::Exp(ner))) => {
+            let er = exp_(context, *ner);
+            let (ty, ecopy) = match er.exp.value {
+                TE::Use(var) => (
+                    er.ty,
+                    TE::Copy {
+                        var,
+                        from_user: true,
+                    },
+                ),
+                er_ @ TE::Constant(_, _) => {
+                    context.env.check_feature(
+                        FeatureGate::Move2024Paths,
+                        context.current_package(),
+                        loc,
+                    );
+                    (er.ty, er_)
+                }
+                TE::UnresolvedError => (er.ty, TE::UnresolvedError),
+                _ => {
+                    let msg = "Invalid 'copy'. Expected a variable or path.".to_owned();
+                    context
+                        .env
+                        .add_diag(diag!(TypeSafety::InvalidCopyOp, (loc, msg)));
+                    (context.error_type(eloc), TE::UnresolvedError)
+                }
+            };
+            if !matches!(ecopy, TE::UnresolvedError) {
+                context.add_ability_constraint(
+                    eloc,
+                    Some(format!(
+                        "Invalid 'copy' of owned value without the '{}' ability",
+                        Ability_::Copy
+                    )),
+                    ty.clone(),
+                    Ability_::Copy,
+                );
+            }
+            (ty, ecopy)
+        }
+
+        NE::ExpDotted(DottedUsage::Borrow(mut_), ndotted) => {
             let (edotted, _) = exp_dotted(context, Some("borrow"), ndotted);
             let eborrow = exp_dotted_to_borrow(context, eloc, mut_, edotted);
             (eborrow.ty, eborrow.exp.value)
         }
 
-        NE::DerefBorrow(ndotted) => {
-            assert!(!matches!(ndotted, sp!(_, N::ExpDotted_::Exp(_))));
-
+        NE::ExpDotted(usage, ndotted) => {
             let (edotted, inner_ty) = exp_dotted(context, Some("dot access"), ndotted);
-            let ederefborrow = exp_dotted_to_owned_value(context, eloc, edotted, inner_ty);
+            let ederefborrow = exp_dotted_to_owned_value(context, usage, eloc, edotted, inner_ty);
             (ederefborrow.ty, ederefborrow.exp.value)
         }
 
@@ -1605,16 +1454,6 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
             );
             (rhs.clone(), TE::Annotate(el, Box::new(rhs)))
         }
-        NE::Spec(u, used_locals) => {
-            let used_local_types = used_locals
-                .into_iter()
-                .map(|v| {
-                    let ty = context.get_local_type(&v);
-                    (v, ty)
-                })
-                .collect();
-            (sp(eloc, Type_::Unit), TE::Spec(u, used_local_types))
-        }
         NE::UnresolvedError => {
             assert!(context.env.has_errors());
             (context.error_type(eloc), TE::UnresolvedError)
@@ -1625,16 +1464,100 @@ fn exp_inner(context: &mut Context, sp!(eloc, ne_): N::Exp) -> T::Exp {
     T::exp(ty, sp(eloc, e_))
 }
 
+fn binop(context: &mut Context, el: T::Exp, bop: BinOp, loc: Loc, er: T::Exp) -> T::Exp {
+    use BinOp_::*;
+    use T::UnannotatedExp_ as TE;
+    let msg = || format!("Incompatible arguments to '{}'", &bop);
+    let (ty, operand_ty) = match &bop.value {
+        Sub | Add | Mul | Mod | Div => {
+            context.add_numeric_constraint(el.exp.loc, bop.value.symbol(), el.ty.clone());
+            context.add_numeric_constraint(er.exp.loc, bop.value.symbol(), el.ty.clone());
+            let operand_ty = join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
+            (operand_ty.clone(), operand_ty)
+        }
+
+        BitOr | BitAnd | Xor => {
+            context.add_bits_constraint(el.exp.loc, bop.value.symbol(), el.ty.clone());
+            context.add_bits_constraint(er.exp.loc, bop.value.symbol(), el.ty.clone());
+            let operand_ty = join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
+            (operand_ty.clone(), operand_ty)
+        }
+
+        Shl | Shr => {
+            let msg = || format!("Invalid argument to '{}'", &bop);
+            let u8ty = Type_::u8(er.exp.loc);
+            context.add_bits_constraint(el.exp.loc, bop.value.symbol(), el.ty.clone());
+            subtype(context, er.exp.loc, msg, er.ty.clone(), u8ty);
+            (el.ty.clone(), el.ty.clone())
+        }
+
+        Lt | Gt | Le | Ge => {
+            context.add_ordered_constraint(el.exp.loc, bop.value.symbol(), el.ty.clone());
+            context.add_ordered_constraint(er.exp.loc, bop.value.symbol(), el.ty.clone());
+            let operand_ty = join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
+            (Type_::bool(loc), operand_ty)
+        }
+
+        Eq | Neq => {
+            let ability_msg = Some(format!(
+                "'{}' requires the '{}' ability as the value is consumed. Try \
+                         borrowing the values with '&' first.'",
+                &bop,
+                Ability_::Drop,
+            ));
+            context.add_ability_constraint(
+                el.exp.loc,
+                ability_msg.clone(),
+                el.ty.clone(),
+                Ability_::Drop,
+            );
+            context.add_ability_constraint(er.exp.loc, ability_msg, er.ty.clone(), Ability_::Drop);
+            let ty = join(context, bop.loc, msg, el.ty.clone(), er.ty.clone());
+            context.add_single_type_constraint(loc, msg(), ty.clone());
+            (Type_::bool(loc), ty)
+        }
+
+        And | Or => {
+            let msg = || format!("Invalid argument to '{}'", &bop);
+            let lloc = el.exp.loc;
+            subtype(context, lloc, msg, el.ty.clone(), Type_::bool(bop.loc));
+            let rloc = er.exp.loc;
+            subtype(context, rloc, msg, er.ty.clone(), Type_::bool(bop.loc));
+            (Type_::bool(loc), Type_::bool(loc))
+        }
+
+        Range | Implies | Iff => panic!("specification operator unexpected"),
+    };
+    T::exp(
+        ty,
+        sp(
+            loc,
+            TE::BinopExp(Box::new(el), bop, Box::new(operand_ty), Box::new(er)),
+        ),
+    )
+}
+
 fn loop_body(
     context: &mut Context,
     eloc: Loc,
+    name: BlockLabel,
     is_loop: bool,
     nloop: Box<N::Exp>,
 ) -> (bool, Type, Box<T::Exp>) {
-    let old_loop_info = context.enter_loop();
-    let eloop = exp(context, nloop);
-    let break_type_opt = context.exit_loop(old_loop_info);
+    // set while break to ()
+    if !is_loop {
+        let while_loop_type = context.named_block_type(name, eloc);
+        // while loop breaks must break with unit
+        subtype(
+            context,
+            eloc,
+            || "Cannot use 'break' with a non-'()' value in 'while'",
+            while_loop_type,
+            sp(eloc, Type_::Unit),
+        );
+    }
 
+    let eloop = exp(context, nloop);
     let lloc = eloop.exp.loc;
     subtype(
         context,
@@ -1643,13 +1566,15 @@ fn loop_body(
         eloop.ty.clone(),
         sp(lloc, Type_::Unit),
     );
-    let has_break = break_type_opt.is_some();
-    let ty = if is_loop && !has_break {
-        core::make_tvar(context, lloc)
+
+    let break_ty_opt = context.named_block_type_opt(name);
+
+    if let Some(break_ty) = break_ty_opt {
+        (true, break_ty, eloop)
     } else {
-        break_type_opt.unwrap_or_else(|| sp(eloc, Type_::Unit))
-    };
-    (has_break, ty, eloop)
+        // if it was a while loop, the `if` case ran, so we can simply make a type var for the loop
+        (false, context.named_block_type(name, eloc), eloop)
+    }
 }
 
 //**************************************************************************************************
@@ -2030,6 +1955,7 @@ fn exp_dotted(
         NE::Exp(ne) => {
             use Type_::*;
             let e = exp(context, ne);
+            warn_on_constant_borrow(context, dloc, &e);
             let ety = &e.ty;
             let unfolded = core::unfold_type(&context.subst, ety.clone());
             let (borrow_needed, ty) = match unfolded.value {
@@ -2122,14 +2048,21 @@ fn exp_dotted_to_borrow(
 
 fn exp_dotted_to_owned_value(
     context: &mut Context,
+    usage: DottedUsage,
     eloc: Loc,
     edot: ExpDotted,
     inner_ty: Type,
 ) -> T::Exp {
     use T::UnannotatedExp_ as TE;
     match edot {
-        // TODO investigate this nonsense
-        sp!(_, ExpDotted_::Exp(lhs)) | sp!(_, ExpDotted_::TmpBorrow(lhs, _)) => *lhs,
+        sp!(_, ExpDotted_::Exp(lhs)) | sp!(_, ExpDotted_::TmpBorrow(lhs, _)) => {
+            debug_assert!(
+                usage == DottedUsage::Use,
+                "ICE this case should only come from method calls. \
+                move/copy/borrow should be covered above"
+            );
+            *lhs
+        }
         edot => {
             let name = match &edot {
                 sp!(_, ExpDotted_::Exp(_)) | sp!(_, ExpDotted_::TmpBorrow(_, _)) => {
@@ -2138,18 +2071,61 @@ fn exp_dotted_to_owned_value(
                 sp!(_, ExpDotted_::Dot(_, name, _)) => *name,
             };
             let eborrow = exp_dotted_to_borrow(context, eloc, false, edot);
-            context.add_ability_constraint(
-                eloc,
-                Some(format!(
-                    "Invalid implicit copy of field '{}' without the '{}' ability",
-                    name,
-                    Ability_::COPY,
-                )),
-                inner_ty.clone(),
-                Ability_::Copy,
-            );
-            T::exp(inner_ty, sp(eloc, TE::Dereference(Box::new(eborrow))))
+            let case = match usage {
+                DottedUsage::Move(loc) => {
+                    let new_syntax = context.env.check_feature(
+                        FeatureGate::Move2024Paths,
+                        context.current_package(),
+                        loc,
+                    );
+                    if new_syntax {
+                        let msg = "Invalid 'move'. 'move' works only with \
+                            variables, e.g. 'move x'. 'move' on a path access is not supported";
+                        context
+                            .env
+                            .add_diag(diag!(TypeSafety::InvalidMoveOp, (loc, msg)));
+                    }
+                    None
+                }
+                DottedUsage::Copy(loc) => {
+                    context.env.check_feature(
+                        FeatureGate::Move2024Paths,
+                        context.current_package(),
+                        loc,
+                    );
+                    Some("'copy'")
+                }
+                DottedUsage::Use => Some("implicit copy"),
+                DottedUsage::Borrow(_) => unreachable!("ICE covered above"),
+            };
+            if let Some(case) = case {
+                context.add_ability_constraint(
+                    eloc,
+                    Some(format!(
+                        "Invalid {} of field '{}' without the '{}' ability",
+                        case,
+                        name,
+                        Ability_::COPY,
+                    )),
+                    inner_ty.clone(),
+                    Ability_::Copy,
+                );
+                T::exp(inner_ty, sp(eloc, TE::Dereference(Box::new(eborrow))))
+            } else {
+                // 'move' case, which is not supported
+                T::exp(context.error_type(eloc), sp(eloc, TE::UnresolvedError))
+            }
         }
+    }
+}
+
+fn warn_on_constant_borrow(context: &mut Context, loc: Loc, e: &T::Exp) {
+    use T::UnannotatedExp_ as TE;
+    if matches!(&e.exp.value, TE::Constant(_, _)) {
+        let msg = "This access will make a new copy of the constant. Consider binding the value to a variable first to make this copy explicit";
+        context
+            .env
+            .add_diag(diag!(TypeSafety::ImplicitConstantCopy, (loc, msg)))
     }
 }
 
@@ -2249,7 +2225,7 @@ fn method_call(
             }
             exp_dotted_to_borrow(context, loc, *mut_, edotted)
         }
-        _ => exp_dotted_to_owned_value(context, loc, edotted, edotted_ty),
+        _ => exp_dotted_to_owned_value(context, DottedUsage::Use, loc, edotted, edotted_ty),
     };
     args.insert(0, first_arg);
     let call = module_call_impl(context, loc, m, f, targs, parameters, argloc, args);

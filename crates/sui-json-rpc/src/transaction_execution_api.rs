@@ -15,6 +15,7 @@ use shared_crypto::intent::{AppId, Intent, IntentMessage, IntentScope, IntentVer
 use sui_core::authority::AuthorityState;
 use sui_core::authority_client::NetworkAuthorityClient;
 use sui_core::transaction_orchestrator::TransactiondOrchestrator;
+use sui_json_rpc_api::{JsonRpcMetrics, WriteApiOpenRpc, WriteApiServer};
 use sui_json_rpc_types::{
     DevInspectResults, DryRunTransactionBlockResponse, SuiTransactionBlock,
     SuiTransactionBlockEvents, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions,
@@ -34,8 +35,6 @@ use sui_types::transaction::{
 };
 use tracing::instrument;
 
-use crate::api::JsonRpcMetrics;
-use crate::api::WriteApiServer;
 use crate::authority_state::StateRead;
 use crate::error::{Error, SuiRpcInputError};
 use crate::{
@@ -104,7 +103,7 @@ impl TransactionExecutionApi {
         for sig in signatures {
             sigs.push(GenericSignature::from_bytes(&sig.to_vec()?)?);
         }
-        let txn = Transaction::from_generic_sig_data(tx_data, Intent::sui_transaction(), sigs);
+        let txn = Transaction::from_generic_sig_data(tx_data, sigs);
         let raw_transaction = if opts.show_raw_input {
             bcs::to_bytes(txn.data())?
         } else {
@@ -158,16 +157,15 @@ impl TransactionExecutionApi {
         let (effects, transaction_events, is_executed_locally) = *cert;
         let mut events: Option<SuiTransactionBlockEvents> = None;
         if opts.show_events {
-            let module_cache = self
-                .state
-                .load_epoch_store_one_call_per_task()
-                .module_cache()
-                .clone();
+            let epoch_store = self.state.load_epoch_store_one_call_per_task();
+            let mut layout_resolver = epoch_store
+                .executor()
+                .type_layout_resolver(Box::new(self.state.get_db()));
             events = Some(SuiTransactionBlockEvents::try_from(
                 transaction_events,
                 digest,
                 None,
-                module_cache.as_ref(),
+                layout_resolver.as_mut(),
             )?);
         }
 
@@ -314,6 +312,6 @@ impl SuiRpcModule for TransactionExecutionApi {
     }
 
     fn rpc_doc_module() -> Module {
-        crate::api::WriteApiOpenRpc::module_doc()
+        WriteApiOpenRpc::module_doc()
     }
 }

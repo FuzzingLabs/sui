@@ -59,20 +59,17 @@ const guides = [
 					'guides/developer/sui-101/create-nft',
 					'guides/developer/sui-101/using-events',
 					'guides/developer/sui-101/access-time',
+					'guides/developer/sui-101/sign-and-send-txn',
+					'guides/developer/sui-101/sponsor-txn',
 					{
 						type: 'category',
-						label: 'Sending Transactions',
-						link: {
-							type: 'doc',
-							id: 'guides/developer/sui-101/send-txn',
-						},
+						label: 'Working with PTBs',
 						items: [
-							'guides/developer/sui-101/sign-txn',
-							'guides/developer/sui-101/sponsor-txn',
+							'guides/developer/sui-101/simulating-refs',
 							'guides/developer/sui-101/coin-mgt',
+							'guides/developer/sui-101/building-ptb',
 						],
 					},
-					'guides/developer/sui-101/building-ptb',
 				],
 			},
 			{
@@ -92,6 +89,11 @@ const guides = [
 			{
 				type: 'category',
 				label: 'Advanced Topics',
+				items: ['guides/developer/advanced/asset-tokenization'],
+			},
+			/*{
+				type: 'category',
+				label: 'Advanced Topics',
 				link: {
 					type: 'doc',
 					id: 'guides/developer/advanced',
@@ -109,8 +111,9 @@ const guides = [
 					'guides/developer/advanced/wallet-integrations',
 					'guides/developer/advanced/security-best-practices',
 					'guides/developer/advanced/maximize-reach',
+					'guides/developer/advanced/asset-tokenization',
 				],
-			},
+			},*/
 			{
 				type: 'category',
 				label: 'App Examples',
@@ -124,7 +127,7 @@ const guides = [
 					'guides/developer/app-examples/escrow',
 					'guides/developer/app-examples/trusted-swap',
 					'guides/developer/app-examples/tic-tac-toe',
-					'guides/developer/app-examples/trusted-swap',
+					'guides/developer/app-examples/recaptcha',
 					'guides/developer/app-examples/turnip-town',
 					{
 						type: 'category',
@@ -163,9 +166,9 @@ const guides = [
 			'guides/operator/genesis',
 			'guides/operator/validator-committee',
 			'guides/operator/validator-tasks',
-			'guides/operator/staking-rewards',
 			'guides/operator/node-tools',
 			'guides/operator/formal-snapshot',
+			'guides/operator/exchange-integration',
 		],
 	},
 ];

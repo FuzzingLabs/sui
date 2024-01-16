@@ -2,24 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::base64::Base64;
+use super::cursor::{Cursor, Page};
 use super::move_module::MoveModule;
 use super::object::Object;
 use super::sui_address::SuiAddress;
-use crate::context_data::db_data_provider::validate_cursor_pagination;
-use crate::error::code::INTERNAL_SERVER_ERROR;
-use crate::error::{graphql_error, Error};
-use async_graphql::connection::{Connection, Edge};
+use crate::data::Db;
+use crate::error::Error;
+use async_graphql::connection::{Connection, CursorType, Edge};
 use async_graphql::*;
-use move_binary_format::CompiledModule;
-use sui_types::{
-    move_package::MovePackage as NativeMovePackage, object::Object as NativeSuiObject, Identifier,
-};
-
-const DEFAULT_PAGE_SIZE: usize = 10;
+use sui_package_resolver::{error::Error as PackageCacheError, Package as ParsedMovePackage};
+use sui_types::{move_package::MovePackage as NativeMovePackage, object::Data};
 
 #[derive(Clone)]
 pub(crate) struct MovePackage {
-    pub native_object: NativeSuiObject,
+    /// Representation of this Move Object as a generic Object.
+    pub super_: Object,
+
+    /// Move-object-specific data, extracted from the native representation at
+    /// `graphql_object.native_object.data`.
+    pub native: NativeMovePackage,
 }
 
 /// Information used by a package to link to a specific version of its dependency.
@@ -49,128 +50,92 @@ struct TypeOrigin {
     defining_id: SuiAddress,
 }
 
-#[allow(unreachable_code)]
-#[allow(unused_variables)]
+pub(crate) struct MovePackageDowncastError;
+
+pub(crate) type CModule = Cursor<String>;
+
 #[Object]
 impl MovePackage {
     /// A representation of the module called `name` in this package, including the
     /// structs and functions it defines.
     async fn module(&self, name: String) -> Result<Option<MoveModule>> {
-        let identifier = Identifier::new(name).map_err(|e| Error::Internal(e.to_string()))?;
-
-        let module = self.native_object.data.try_as_package().map(|x| {
-            x.deserialize_module(
-                &identifier,
-                move_binary_format::file_format_common::VERSION_MAX,
-                true,
-            )
-            .map(|x| MoveModule { native_module: x })
-        });
-        if let Some(modu) = module {
-            return Ok(Some(modu?));
-        }
-        Ok(None)
+        self.module_impl(&name).extend()
     }
 
     /// Paginate through the MoveModules defined in this package.
-    pub async fn module_connection(
+    pub async fn modules(
         &self,
         ctx: &Context<'_>,
         first: Option<u64>,
-        after: Option<String>,
+        after: Option<CModule>,
         last: Option<u64>,
-        before: Option<String>,
+        before: Option<CModule>,
     ) -> Result<Option<Connection<String, MoveModule>>> {
-        // TODO: make cursor opaque.
-        // for now it same as module name
-        validate_cursor_pagination(&first, &after, &last, &before)?;
+        use std::ops::Bound as B;
 
-        if let Some(mod_map) = self
-            .native_object
-            .data
-            .try_as_package()
-            .map(|x| x.serialized_module_map())
-        {
-            if mod_map.is_empty() {
-                return Err(graphql_error(
-                    INTERNAL_SERVER_ERROR,
-                    format!(
-                        "Published package cannot contain zero modules. Id: {}",
-                        self.native_object.id()
-                    ),
-                )
-                .into());
-            }
+        let page = Page::from_params(ctx.data_unchecked(), first, after, last, before)?;
 
-            let mut forward = true;
-            let mut count = first.unwrap_or(DEFAULT_PAGE_SIZE as u64);
-            count = last.unwrap_or(count);
+        let parsed = self.parsed_package()?;
+        let module_range = parsed.modules().range::<String, _>((
+            page.after().map_or(B::Unbounded, B::Excluded),
+            page.before().map_or(B::Unbounded, B::Excluded),
+        ));
 
-            let mut mod_list = mod_map
-                .clone()
-                .into_iter()
-                .collect::<Vec<(String, Vec<u8>)>>();
+        let mut connection = Connection::new(false, false);
+        let modules = if page.is_from_front() {
+            module_range.take(page.limit()).collect()
+        } else {
+            let mut ms: Vec<_> = module_range.rev().take(page.limit()).collect();
+            ms.reverse();
+            ms
+        };
 
-            // ok to unwrap because we know mod_map is not empty
-            let mut start = &if last.is_some() {
-                forward = false;
-                mod_list.last().map(|c| c.0.clone())
-            } else {
-                mod_list.first().map(|c| c.0.clone())
-            }
-            .unwrap();
+        connection.has_previous_page = modules.first().is_some_and(|(fst, _)| {
+            parsed
+                .modules()
+                .range::<String, _>((B::Unbounded, B::Excluded(*fst)))
+                .next()
+                .is_some()
+        });
 
-            if let Some(aft) = &after {
-                start = aft;
-            } else if let Some(bef) = &before {
-                start = bef;
-                forward = false;
+        connection.has_next_page = modules.last().is_some_and(|(lst, _)| {
+            parsed
+                .modules()
+                .range::<String, _>((B::Excluded(*lst), B::Unbounded))
+                .next()
+                .is_some()
+        });
+
+        for (name, parsed) in modules {
+            let Some(native) = self.native.serialized_module_map().get(name) else {
+                return Err(Error::Internal(format!(
+                    "Module '{name}' exists in PackageCache but not in serialized map.",
+                ))
+                .extend());
             };
 
-            if !forward {
-                mod_list = mod_list.into_iter().rev().collect();
-            }
-
-            let mut res: Vec<_> = mod_list
-                .iter()
-                .skip_while(|(name, _)| name.as_str() != start)
-                .skip((after.is_some() || before.is_some()) as usize)
-                .take(count as usize)
-                .map(|(name, module)| {
-                    CompiledModule::deserialize_with_config(
-                        module,
-                        move_binary_format::file_format_common::VERSION_MAX,
-                        true,
-                    )
-                    .map(|x| (name, MoveModule { native_module: x }))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            let mut has_prev_page = &mod_list.first().unwrap().0 != start;
-            let mut has_next_page =
-                !res.is_empty() && &mod_list.last().unwrap().0 != res.last().unwrap().0;
-            if !forward {
-                res = res.into_iter().rev().collect();
-                has_prev_page = &mod_list.first().unwrap().0 != start;
-                has_next_page =
-                    !res.is_empty() && &mod_list.last().unwrap().0 != res.first().unwrap().0;
-            }
-
-            let mut connection = Connection::new(has_prev_page, has_next_page);
-
-            connection.edges.extend(
-                res.into_iter()
-                    .map(|(name, module)| Edge::new(name.clone(), module)),
-            );
-            return Ok(Some(connection));
+            let cursor = Cursor::new(name.clone()).encode_cursor();
+            connection.edges.push(Edge::new(
+                cursor,
+                MoveModule {
+                    storage_id: self.super_.address,
+                    native: native.clone(),
+                    parsed: parsed.clone(),
+                },
+            ))
         }
 
-        Ok(None)
+        if connection.edges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(connection))
+        }
     }
 
     /// The transitive dependencies of this package.
-    async fn linkage(&self) -> Result<Option<Vec<Linkage>>> {
+    async fn linkage(&self) -> Option<Vec<Linkage>> {
         let linkage = self
-            .as_native_package()?
+            .native
             .linkage_table()
             .iter()
             .map(|(&runtime_id, upgrade_info)| Linkage {
@@ -180,13 +145,13 @@ impl MovePackage {
             })
             .collect();
 
-        Ok(Some(linkage))
+        Some(linkage)
     }
 
     /// The (previous) versions of this package that introduced its types.
-    async fn type_origins(&self) -> Result<Option<Vec<TypeOrigin>>> {
+    async fn type_origins(&self) -> Option<Vec<TypeOrigin>> {
         let type_origins = self
-            .as_native_package()?
+            .native
             .type_origin_table()
             .iter()
             .map(|origin| TypeOrigin {
@@ -196,36 +161,79 @@ impl MovePackage {
             })
             .collect();
 
-        Ok(Some(type_origins))
+        Some(type_origins)
     }
 
     /// BCS representation of the package's modules.  Modules appear as a sequence of pairs (module
     /// name, followed by module bytes), in alphabetic order by module name.
     async fn bcs(&self) -> Result<Option<Base64>> {
-        let modules = self.as_native_package()?.serialized_module_map();
-
-        let bcs = bcs::to_bytes(modules).map_err(|_| {
-            Error::Internal(format!(
-                "Failed to serialize package {}",
-                self.native_object.id(),
-            ))
-        })?;
+        let bcs = bcs::to_bytes(self.native.serialized_module_map())
+            .map_err(|_| {
+                Error::Internal(format!("Failed to serialize package {}", self.native.id()))
+            })
+            .extend()?;
 
         Ok(Some(bcs.into()))
     }
 
-    async fn as_object(&self) -> Option<Object> {
-        Some(Object::from(&self.native_object))
+    async fn as_object(&self) -> &Object {
+        &self.super_
     }
 }
 
 impl MovePackage {
-    fn as_native_package(&self) -> Result<&NativeMovePackage> {
-        Ok(self.native_object.data.try_as_package().ok_or_else(|| {
-            Error::Internal(format!(
-                "Failed to convert native object to move package: {}",
-                self.native_object.id(),
-            ))
-        })?)
+    fn parsed_package(&self) -> Result<ParsedMovePackage, Error> {
+        // TODO: Leverage the package cache (attempt to read from it, and if that doesn't succeed,
+        // write back the parsed Package to the cache as well.)
+        ParsedMovePackage::read(&self.super_.native)
+            .map_err(|e| Error::Internal(format!("Error reading package: {e}")))
+    }
+
+    pub(crate) fn module_impl(&self, name: &str) -> Result<Option<MoveModule>, Error> {
+        use PackageCacheError as E;
+        match (
+            self.native.serialized_module_map().get(name),
+            self.parsed_package()?.module(name),
+        ) {
+            (Some(native), Ok(parsed)) => Ok(Some(MoveModule {
+                storage_id: self.super_.address,
+                native: native.clone(),
+                parsed: parsed.clone(),
+            })),
+
+            (None, _) | (_, Err(E::ModuleNotFound(_, _))) => Ok(None),
+            (_, Err(e)) => Err(Error::Internal(format!(
+                "Unexpected error fetching module: {e}"
+            ))),
+        }
+    }
+
+    pub(crate) async fn query(
+        db: &Db,
+        address: SuiAddress,
+        version: Option<u64>,
+    ) -> Result<Option<Self>, Error> {
+        let Some(object) = Object::query(db, address, version).await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(MovePackage::try_from(&object).map_err(|_| {
+            Error::Internal(format!("{address} is not a package"))
+        })?))
+    }
+}
+
+impl TryFrom<&Object> for MovePackage {
+    type Error = MovePackageDowncastError;
+
+    fn try_from(object: &Object) -> Result<Self, Self::Error> {
+        if let Data::Package(move_package) = &object.native.data {
+            Ok(Self {
+                super_: object.clone(),
+                native: move_package.clone(),
+            })
+        } else {
+            Err(MovePackageDowncastError)
+        }
     }
 }

@@ -19,10 +19,11 @@ use move_binary_format::{
 use move_bytecode_verifier::script_signature;
 use move_core_types::{
     account_address::AccountAddress,
+    annotated_value as A,
     identifier::{IdentStr, Identifier},
     language_storage::{ModuleId, TypeTag},
     resolver::MoveResolver,
-    value::MoveTypeLayout,
+    runtime_value::MoveTypeLayout,
     vm_status::StatusCode,
 };
 use move_vm_config::runtime::VMConfig;
@@ -316,6 +317,7 @@ impl VMRuntime {
         data_store: &mut impl DataStore,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         let arg_types = param_types
             .into_iter()
@@ -347,6 +349,7 @@ impl VMRuntime {
             gas_meter,
             extensions,
             &self.loader,
+            coverage
         )?;
 
         let serialized_return_values = self
@@ -387,6 +390,7 @@ impl VMRuntime {
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         bypass_declared_entry_check: bool,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         use move_binary_format::{binary_views::BinaryIndexedView, file_format::SignatureIndex};
         fn check_is_entry(
@@ -438,44 +442,7 @@ impl VMRuntime {
             data_store,
             gas_meter,
             extensions,
-        )
-    }
-
-    // See Session::execute_script for what contracts to follow.
-    pub(crate) fn execute_script(
-        &self,
-        script: impl Borrow<[u8]>,
-        type_arguments: Vec<Type>,
-        serialized_args: Vec<impl Borrow<[u8]>>,
-        data_store: &mut impl DataStore,
-        gas_meter: &mut impl GasMeter,
-        extensions: &mut NativeContextExtensions,
-    ) -> VMResult<SerializedReturnValues> {
-        // load the script, perform verification
-        let (
-            func,
-            LoadedFunctionInstantiation {
-                parameters,
-                return_,
-            },
-        ) = self
-            .loader
-            .load_script(script.borrow(), &type_arguments, data_store)?;
-        #[cfg(debug_assertions)]
-        {
-            let rem = gas_meter.remaining_gas().into();
-            gas_meter.set_profiler(GasProfiler::init_default_cfg(func.pretty_string(), rem));
-        }
-        // execute the function
-        self.execute_function_impl(
-            func,
-            type_arguments,
-            parameters,
-            return_,
-            serialized_args,
-            data_store,
-            gas_meter,
-            extensions,
+            coverage
         )
     }
 
@@ -524,6 +491,7 @@ impl VMRuntime {
         data_store: &mut impl DataStore,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         #[cfg(debug_assertions)]
         {
@@ -544,11 +512,15 @@ impl VMRuntime {
             data_store,
             gas_meter,
             extensions,
+<<<<<<< HEAD:external-crates/move/crates/move-vm-runtime/src/runtime.rs
             bypass_declared_entry_check,
+=======
+            coverage
+>>>>>>> 1f06a10062 (Coverage):external-crates/move-execution/v0/move-vm/runtime/src/runtime.rs
         )
     }
 
-    pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<MoveTypeLayout> {
+    pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<A::MoveTypeLayout> {
         self.loader
             .type_to_fully_annotated_layout(ty)
             .map_err(|e| e.finish(Location::Undefined))

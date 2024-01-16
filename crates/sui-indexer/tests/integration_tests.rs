@@ -29,9 +29,9 @@ pub mod pg_integration_test {
     use sui_indexer::store::{IndexerStore, PgIndexerStore};
     use sui_indexer::test_utils::{start_test_indexer, SuiTransactionBlockResponseBuilder};
     use sui_indexer::{get_pg_pool_connection, new_pg_connection_pool, IndexerConfig};
-    use sui_json_rpc::api::ExtendedApiClient;
-    use sui_json_rpc::api::IndexerApiClient;
-    use sui_json_rpc::api::{ReadApiClient, TransactionBuilderClient, WriteApiClient};
+    use sui_json_rpc_api::ExtendedApiClient;
+    use sui_json_rpc_api::IndexerApiClient;
+    use sui_json_rpc_api::{ReadApiClient, TransactionBuilderClient, WriteApiClient};
     use sui_json_rpc_types::{
         CheckpointId, EventFilter, SuiMoveObject, SuiObjectData, SuiObjectDataFilter,
         SuiObjectDataOptions, SuiObjectResponse, SuiObjectResponseQuery, SuiParsedMoveObject,
@@ -42,7 +42,6 @@ pub mod pg_integration_test {
     use sui_types::digests::{ObjectDigest, TransactionDigest};
     use sui_types::error::SuiObjectResponseError;
     use sui_types::gas_coin::GasCoin;
-    use sui_types::object::ObjectFormatOptions;
     use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
     use sui_types::transaction::TEST_ONLY_GAS_UNIT_FOR_TRANSFER;
     use test_cluster::{TestCluster, TestClusterBuilder};
@@ -814,9 +813,7 @@ pub mod pg_integration_test {
             .into_object()
             .unwrap();
 
-        let layout = coin_object
-            .get_layout(ObjectFormatOptions::default(), store.module_cache())
-            .unwrap();
+        let layout = coin_object.get_layout(store.module_cache()).unwrap();
 
         assert!(layout.is_some());
 

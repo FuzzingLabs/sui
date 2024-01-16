@@ -1,418 +1,451 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
+use async_graphql::{
+    connection::{Connection, CursorType, Edge},
+    *,
+};
+use diesel::{alias, ExpressionMethods, NullableExpressionMethods, OptionalExtension, QueryDsl};
+use fastcrypto::encoding::{Base58, Encoding};
+use sui_indexer::{
+    models_v2::transactions::StoredTransaction,
+    schema_v2::{
+        transactions, tx_calls, tx_changed_objects, tx_input_objects, tx_recipients, tx_senders,
+    },
+};
+use sui_types::{
+    base_types::SuiAddress as NativeSuiAddress,
+    transaction::{
+        SenderSignedData as NativeSenderSignedData, TransactionDataAPI, TransactionExpiration,
+    },
+};
 
-use std::str::FromStr;
+use crate::{
+    data::{self, Db, DbConnection, QueryExecutor},
+    error::Error,
+};
 
 use super::{
     address::Address,
-    balance::BalanceChange,
     base64::Base64,
-    big_int::BigInt,
-    checkpoint::Checkpoint,
+    cursor::{self, Page, Target},
     digest::Digest,
     epoch::Epoch,
-    gas::{GasEffects, GasInput},
-    object_change::ObjectChange,
-    owner::Owner,
+    event::Event,
+    gas::GasInput,
     sui_address::SuiAddress,
+    transaction_block_effects::TransactionBlockEffects,
     transaction_block_kind::TransactionBlockKind,
-    transaction_signature::TransactionSignature,
+    type_filter::FqNameFilter,
 };
-use crate::{context_data::db_data_provider::PgManager, error};
-use async_graphql::*;
 
-use sui_indexer::types_v2::IndexedObjectChange;
-use sui_json_rpc_types::{
-    BalanceChange as NativeBalanceChange, SuiExecutionStatus, SuiTransactionBlockEffects,
-    SuiTransactionBlockEffectsAPI,
-};
-use sui_types::digests::TransactionDigest;
-
-#[derive(SimpleObject, Clone, Eq, PartialEq)]
-#[graphql(complex)]
+#[derive(Clone)]
 pub(crate) struct TransactionBlock {
-    #[graphql(skip)]
-    pub digest: Digest,
-    /// The effects field captures the results to the chain of executing this transaction
-    pub effects: Option<TransactionBlockEffects>,
-    /// The address of the user sending this transaction block
-    pub sender: Option<Address>,
-    /// The transaction block data in BCS format.
-    /// This includes data on the sender, inputs, sponsor, gas inputs, individual transactions, and user signatures.
-    pub bcs: Option<Base64>,
-    /// The gas input field provides information on what objects were used as gas
-    /// As well as the owner of the gas object(s) and information on the gas price and budget
-    /// If the owner of the gas object(s) is not the same as the sender,
-    /// the transaction block is a sponsored transaction block.
-    pub gas_input: Option<GasInput>,
-    #[graphql(skip)]
-    pub epoch_id: Option<u64>,
-    pub kind: Option<TransactionBlockKind>,
-    /// A list of signatures of all signers, senders, and potentially the gas owner if this is a sponsored transaction.
-    pub signatures: Option<Vec<Option<TransactionSignature>>>,
+    /// Representation of transaction data in the Indexer's Store. The indexer stores the
+    /// transaction data and its effects together, in one table.
+    pub stored: StoredTransaction,
+
+    /// Deserialized representation of `stored.raw_transaction`.
+    pub native: NativeSenderSignedData,
 }
 
-#[ComplexObject]
-impl TransactionBlock {
-    /// A 32-byte hash that uniquely identifies the transaction block contents, encoded in Base58.
-    /// This serves as a unique id for the block on chain
-    async fn digest(&self) -> String {
-        self.digest.to_string()
-    }
-
-    /// This field is set by senders of a transaction block
-    /// It is an epoch reference that sets a deadline after which validators will no longer consider the transaction valid
-    /// By default, there is no deadline for when a transaction must execute
-    async fn expiration(&self, ctx: &Context<'_>) -> Result<Option<Epoch>> {
-        match self.epoch_id {
-            None => Ok(None),
-            Some(epoch_id) => {
-                let epoch = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_epoch_strict(epoch_id)
-                    .await
-                    .extend()?;
-                Ok(Some(epoch))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, SimpleObject)]
-#[graphql(complex)]
-pub(crate) struct TransactionBlockEffects {
-    #[graphql(skip)]
-    pub gas_effects: GasEffects,
-    pub status: ExecutionStatus,
-    pub errors: Option<String>,
-
-    #[graphql(skip)]
-    pub tx_block_digest: Digest,
-    // pub transaction_block: Option<Box<TransactionBlock>>,
-    #[graphql(skip)]
-    pub dependencies: Vec<TransactionDigest>,
-    pub lamport_version: Option<u64>,
-    // unclear what object reads is about, TODO @ashok
-    // pub object_reads: Vec<Object>,
-    #[graphql(skip)]
-    pub object_changes_as_bcs: Vec<Option<Vec<u8>>>,
-    pub balance_changes: Option<Vec<Option<BalanceChange>>>,
-    // have their own resolvers in the impl block
-    #[graphql(skip)]
-    pub epoch_id: u64,
-    // pub epoch: Option<Epoch>,
-    // pub checkpoint: Option<Checkpoint>,
-    #[graphql(skip)]
-    checkpoint_seq_number: u64,
-}
-
-impl TransactionBlockEffects {
-    pub fn from_stored_transaction(
-        balance_changes: Vec<Option<Vec<u8>>>,
-        checkpoint_seq_number: u64,
-        object_changes: Vec<Option<Vec<u8>>>,
-        tx_effects: &SuiTransactionBlockEffects,
-        tx_block_digest: Digest,
-    ) -> Result<Option<Self>> {
-        let (status, errors) = match tx_effects.status() {
-            SuiExecutionStatus::Success => (ExecutionStatus::Success, None),
-            SuiExecutionStatus::Failure { error } => {
-                (ExecutionStatus::Failure, Some(error.clone()))
-            }
-        };
-        let lamport_version = tx_effects
-            .created()
-            .first()
-            .map(|x| x.reference.version.value());
-        let balance_changes = BalanceChange::from(balance_changes)?;
-
-        Ok(Some(Self {
-            gas_effects: GasEffects::from((tx_effects.gas_cost_summary(), tx_effects.gas_object())),
-            status,
-            errors,
-            lamport_version,
-            dependencies: tx_effects.dependencies().to_vec(),
-            balance_changes: Some(balance_changes),
-            epoch_id: tx_effects.executed_epoch(),
-            tx_block_digest,
-            object_changes_as_bcs: object_changes,
-            checkpoint_seq_number,
-        }))
-    }
-}
-
-#[ComplexObject]
-impl TransactionBlockEffects {
-    // the lamport version is the sequence number?
-    async fn checkpoint(&self, ctx: &Context<'_>) -> Result<Option<Checkpoint>> {
-        let checkpoint = ctx
-            .data_unchecked::<PgManager>()
-            .fetch_checkpoint(None, Some(self.checkpoint_seq_number))
-            .await?;
-        Ok(checkpoint)
-    }
-
-    // resolve the dependencies based on the transaction digests
-    async fn dependencies(
-        &self,
-        ctx: &Context<'_>,
-    ) -> Result<Option<Vec<Option<TransactionBlock>>>, Error> {
-        let digests = &self.dependencies;
-
-        ctx.data_unchecked::<PgManager>()
-            .fetch_txs_by_digests(digests)
-            .await
-            .extend()
-    }
-
-    async fn epoch(&self, ctx: &Context<'_>) -> Result<Option<Epoch>> {
-        let epoch = ctx
-            .data_unchecked::<PgManager>()
-            .fetch_epoch_strict(self.epoch_id)
-            .await?;
-        Ok(Some(epoch))
-    }
-
-    async fn gas_effects(&self) -> Option<GasEffects> {
-        Some(self.gas_effects)
-    }
-
-    async fn object_changes(&self, ctx: &Context<'_>) -> Result<Option<Vec<Option<ObjectChange>>>> {
-        let mut changes = vec![];
-        for bcs in self.object_changes_as_bcs.iter().flatten() {
-            let object_change: IndexedObjectChange = bcs::from_bytes(bcs).map_err(|_| {
-                error::Error::Internal(
-                    "Cannot convert bcs bytes into IndexedObjectChange object".to_string(),
-                )
-            })?;
-            changes.push(ObjectChange::from(object_change, ctx).await?);
-        }
-        Ok(Some(changes))
-    }
-
-    async fn transaction_block(&self, ctx: &Context<'_>) -> Result<Option<TransactionBlock>> {
-        ctx.data_unchecked::<PgManager>()
-            .fetch_tx(self.tx_block_digest.to_string().as_str())
-            .await
-            .extend()
-    }
-}
-
+/// An input filter selecting for either system or programmable transactions.
 #[derive(Enum, Copy, Clone, Eq, PartialEq, Debug)]
 pub(crate) enum TransactionBlockKindInput {
+    /// A system transaction can be one of several types of transactions.
+    /// See [unions/transaction-block-kind] for more details.
     SystemTx = 0,
+    /// A user submitted transaction block
     ProgrammableTx = 1,
-}
-
-#[derive(Enum, Copy, Clone, Eq, PartialEq)]
-pub enum ExecutionStatus {
-    Success,
-    Failure,
 }
 
 #[derive(InputObject, Debug, Default, Clone)]
 pub(crate) struct TransactionBlockFilter {
-    pub package: Option<SuiAddress>,
-    pub module: Option<String>,
-    pub function: Option<String>,
+    pub function: Option<FqNameFilter>,
 
+    /// An input filter selecting for either system or programmable transactions.
     pub kind: Option<TransactionBlockKindInput>,
     pub after_checkpoint: Option<u64>,
     pub at_checkpoint: Option<u64>,
     pub before_checkpoint: Option<u64>,
 
     pub sign_address: Option<SuiAddress>,
-    pub sent_address: Option<SuiAddress>,
     pub recv_address: Option<SuiAddress>,
-    pub paid_address: Option<SuiAddress>,
 
     pub input_object: Option<SuiAddress>,
     pub changed_object: Option<SuiAddress>,
 
-    pub transaction_ids: Option<Vec<String>>,
+    pub transaction_ids: Option<Vec<Digest>>,
 }
 
-impl BalanceChange {
-    fn from(balance_changes: Vec<Option<Vec<u8>>>) -> Result<Vec<Option<BalanceChange>>> {
-        let mut output = vec![];
-        for balance_change_bcs in balance_changes.into_iter().flatten() {
-            let balance_change: NativeBalanceChange = bcs::from_bytes(&balance_change_bcs)
-                .map_err(|_| {
-                    error::Error::Internal("Cannot convert bcs bytes to BalanceChange".to_string())
-                })?;
-            let balance_change_owner_address =
-                balance_change.owner.get_owner_address().map_err(|_| {
-                    error::Error::Internal(
-                        "Cannot get the balance change owner's address".to_string(),
-                    )
-                })?;
+pub(crate) type Cursor = cursor::Cursor<u64>;
+type CEvent = cursor::Cursor<usize>;
+type Query<ST, GB> = data::Query<ST, transactions::table, GB>;
 
-            let address =
-                SuiAddress::from_bytes(balance_change_owner_address.to_vec()).map_err(|_| {
-                    error::Error::Internal(
-                        "Cannot get a SuiAddress from the balance change owner address".to_string(),
-                    )
-                })?;
-            let owner = Owner { address };
-            let amount =
-                BigInt::from_str(balance_change.amount.to_string().as_str()).map_err(|_| {
-                    error::Error::Internal(
-                        "Cannot convert balance change amount to BigInt amount".to_string(),
-                    )
-                })?;
-            output.push(Some(BalanceChange {
-                owner: Some(owner),
-                amount: Some(amount),
-            }))
+#[Object]
+impl TransactionBlock {
+    /// A 32-byte hash that uniquely identifies the transaction block contents, encoded in Base58.
+    /// This serves as a unique id for the block on chain.
+    async fn digest(&self) -> String {
+        Base58::encode(&self.stored.transaction_digest)
+    }
+
+    /// The address corresponding to the public key that signed this transaction. System
+    /// transactions do not have senders.
+    async fn sender(&self) -> Option<Address> {
+        let sender = self.native.transaction_data().sender();
+        (sender != NativeSuiAddress::ZERO).then(|| Address {
+            address: SuiAddress::from(sender),
+        })
+    }
+
+    /// The gas input field provides information on what objects were used as gas as well as the
+    /// owner of the gas object(s) and information on the gas price and budget.
+    ///
+    /// If the owner of the gas object(s) is not the same as the sender, the transaction block is a
+    /// sponsored transaction block.
+    async fn gas_input(&self) -> Option<GasInput> {
+        Some(GasInput::from(self.native.transaction_data().gas_data()))
+    }
+
+    /// The type of this transaction as well as the commands and/or parameters comprising the
+    /// transaction of this kind.
+    async fn kind(&self) -> Option<TransactionBlockKind> {
+        Some(TransactionBlockKind::from(
+            self.native.transaction_data().kind().clone(),
+        ))
+    }
+
+    /// A list of all signatures, Base64-encoded, from senders, and potentially the gas owner if
+    /// this is a sponsored transaction.
+    async fn signatures(&self) -> Option<Vec<Base64>> {
+        Some(
+            self.native
+                .tx_signatures()
+                .iter()
+                .map(|s| Base64::from(s.as_ref()))
+                .collect(),
+        )
+    }
+
+    /// The effects field captures the results to the chain of executing this transaction.
+    async fn effects(&self) -> Result<Option<TransactionBlockEffects>> {
+        Ok(Some(
+            TransactionBlockEffects::try_from(self.stored.clone()).extend()?,
+        ))
+    }
+
+    /// Events emitted by this transaction block.
+    async fn events(
+        &self,
+        ctx: &Context<'_>,
+        first: Option<u64>,
+        after: Option<CEvent>,
+        last: Option<u64>,
+        before: Option<CEvent>,
+    ) -> Result<Connection<String, Event>> {
+        let page = Page::from_params(ctx.data_unchecked(), first, after, last, before)?;
+        let mut connection = Connection::new(false, false);
+        let Some((prev, next, cs)) = page.paginate_indices(self.stored.events.len()) else {
+            return Ok(connection);
+        };
+
+        connection.has_previous_page = prev;
+        connection.has_next_page = next;
+
+        for c in cs {
+            let event = Event::try_from_stored_transaction(&self.stored, *c).extend()?;
+            connection.edges.push(Edge::new(c.encode_cursor(), event));
         }
-        Ok(output)
+
+        Ok(connection)
+    }
+
+    /// This field is set by senders of a transaction block. It is an epoch reference that sets a
+    /// deadline after which validators will no longer consider the transaction valid. By default,
+    /// there is no deadline for when a transaction must execute.
+    async fn expiration(&self, ctx: &Context<'_>) -> Result<Option<Epoch>> {
+        let TransactionExpiration::Epoch(id) = self.native.transaction_data().expiration() else {
+            return Ok(None);
+        };
+
+        Epoch::query(ctx.data_unchecked(), Some(*id)).await.extend()
+    }
+
+    /// Serialized form of this transaction's `SenderSignedData`, BCS serialized and Base64 encoded.
+    async fn bcs(&self) -> Option<Base64> {
+        Some(Base64::from(&self.stored.raw_transaction))
     }
 }
 
-// TODO this should be replaced together with the whole TXBLOCKEFFECTS once the indexer has this stuff implemented
-// see effects_v2.rs in indexer
-impl ObjectChange {
-    async fn from(object_change: IndexedObjectChange, ctx: &Context<'_>) -> Result<Option<Self>> {
-        match object_change {
-            IndexedObjectChange::Created {
-                sender: _,
-                owner: _,
-                object_type: _,
-                object_id,
-                version,
-                digest: _,
-            } => {
-                let sui_address = SuiAddress::from_bytes(object_id.into_bytes()).map_err(|_| {
-                    error::Error::Internal("Cannot decode a SuiAddress from object_id".to_string())
-                })?;
-                let output_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
-                Ok(Some(Self {
-                    input_state: None,
-                    output_state,
-                    id_created: Some(true),
-                    id_deleted: None,
-                }))
-            }
+impl TransactionBlock {
+    /// Look up a `TransactionBlock` in the database, by its transaction digest.
+    pub(crate) async fn query(db: &Db, digest: Digest) -> Result<Option<Self>, Error> {
+        use transactions::dsl;
 
-            IndexedObjectChange::Published {
-                package_id,
-                version,
-                digest: _,
-                modules: _,
-            } => {
-                let sui_address =
-                    SuiAddress::from_bytes(package_id.into_bytes()).map_err(|_| {
-                        error::Error::Internal(
-                            "Cannot decode a SuiAddress from package_id".to_string(),
-                        )
-                    })?;
-                let output_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
-                Ok(Some(Self {
-                    input_state: None,
-                    output_state,
-                    id_created: Some(true),
-                    id_deleted: None,
-                }))
-            }
-            IndexedObjectChange::Transferred {
-                sender: _,
-                recipient: _,
-                object_type: _,
-                object_id,
-                version,
-                digest: _,
-            } => {
-                let sui_address = SuiAddress::from_bytes(object_id.into_bytes()).map_err(|_| {
-                    error::Error::Internal("Cannot decode a SuiAddress from object_id".to_string())
-                })?;
-                // TODO
-                // I assume the output is a different object as it probably has a different
-                // owner (the recipient) + the version + digest are different
-                let output_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
+        let stored: Option<StoredTransaction> = db
+            .execute(move |conn| {
+                conn.result(move || {
+                    dsl::transactions.filter(dsl::transaction_digest.eq(digest.to_vec()))
+                })
+                .optional()
+            })
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to fetch transaction: {e}")))?;
 
-                Ok(Some(Self {
-                    input_state: output_state.clone(),
-                    output_state,
-                    id_created: None,
-                    id_deleted: None,
-                }))
-            }
-            IndexedObjectChange::Mutated {
-                sender: _,
-                owner: _,
-                object_type: _,
-                object_id,
-                version,
-                previous_version,
-                digest: _,
-            } => {
-                let sui_address = SuiAddress::from_bytes(object_id.into_bytes()).map_err(|_| {
-                    error::Error::Internal("Cannot decode a SuiAddress from object_id".to_string())
-                })?;
-                let input_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(previous_version.value()))
-                    .await?;
-                let output_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
-                Ok(Some(Self {
-                    input_state,
-                    output_state,
-                    id_created: None,
-                    id_deleted: None,
-                }))
-            }
-            IndexedObjectChange::Deleted {
-                sender: _,
-                object_type: _,
-                object_id,
-                version,
-            } => {
-                let sui_address = SuiAddress::from_bytes(object_id.into_bytes()).map_err(|_| {
-                    error::Error::Internal("Cannot decode a SuiAddress from object_id".to_string())
-                })?;
-                let input_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
-                Ok(Some(Self {
-                    input_state,
-                    output_state: None,
-                    id_created: None,
-                    id_deleted: Some(true),
-                }))
-            }
-            IndexedObjectChange::Wrapped {
-                sender: _,
-                object_type: _,
-                object_id,
-                version,
-            } => {
-                let sui_address = SuiAddress::from_bytes(object_id.into_bytes()).map_err(|_| {
-                    error::Error::Internal("Cannot decode a SuiAddress from object_id".to_string())
-                })?;
-                let output_state = ctx
-                    .data_unchecked::<PgManager>()
-                    .fetch_obj(sui_address, Some(version.value()))
-                    .await?;
-                Ok(Some(Self {
-                    input_state: None,
-                    output_state,
-                    id_created: None,
-                    id_deleted: None,
-                }))
-            }
+        stored.map(TransactionBlock::try_from).transpose()
+    }
+
+    /// Look up multiple `TransactionBlock`s by their digests. Returns a map from those digests to
+    /// their resulting transaction blocks, for the blocks that could be found. We return a map
+    /// because the order of results from the DB is not otherwise guaranteed to match the order that
+    /// digests were passed into `multi_query`.
+    pub(crate) async fn multi_query(
+        db: &Db,
+        digests: Vec<Digest>,
+    ) -> Result<BTreeMap<Digest, Self>, Error> {
+        use transactions::dsl;
+        let digests: Vec<_> = digests.into_iter().map(|d| d.to_vec()).collect();
+
+        let stored: Vec<StoredTransaction> = db
+            .execute(move |conn| {
+                conn.results(move || {
+                    dsl::transactions.filter(dsl::transaction_digest.eq_any(digests.clone()))
+                })
+            })
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to fetch transactions: {e}")))?;
+
+        let mut transactions = BTreeMap::new();
+        for tx in stored {
+            let digest = Digest::try_from(&tx.transaction_digest[..])
+                .map_err(|e| Error::Internal(format!("Bad digest for transaction: {e}")))?;
+
+            let transaction = TransactionBlock::try_from(tx)?;
+            transactions.insert(digest, transaction);
         }
+
+        Ok(transactions)
+    }
+
+    pub(crate) async fn paginate(
+        db: &Db,
+        page: Page<u64>,
+        filter: TransactionBlockFilter,
+    ) -> Result<Connection<String, TransactionBlock>, Error> {
+        let (prev, next, results) = db
+            .execute(move |conn| {
+                page.paginate_query::<StoredTransaction, _, _, _>(conn, move || {
+                    use transactions as tx;
+                    let mut query = tx::dsl::transactions.into_boxed();
+
+                    if let Some(f) = &filter.function {
+                        let sub_query = tx_calls::dsl::tx_calls
+                            .select(tx_calls::dsl::tx_sequence_number)
+                            .into_boxed();
+
+                        query = query.filter(tx::dsl::tx_sequence_number.eq_any(f.apply(
+                            sub_query,
+                            tx_calls::dsl::package,
+                            tx_calls::dsl::module,
+                            tx_calls::dsl::func,
+                        )));
+                    }
+
+                    if let Some(k) = &filter.kind {
+                        query = query.filter(tx::dsl::transaction_kind.eq(*k as i16))
+                    }
+
+                    if let Some(c) = &filter.after_checkpoint {
+                        // Translate bound on checkpoint number into a bound on transaction sequence
+                        // number to make better use of indices. Experimentally, postgres struggles
+                        // to use the index on checkpoint sequence number to handle inequality
+                        // constraints -- it still uses the index on transaction sequence number --
+                        // but it's fine to use that index on an equality query.
+                        //
+                        // Diesel also does not like the same table appearing multiple times in a
+                        // single query, so we create an alias of the `transactions` table to query
+                        // for the transaction sequence number bound.
+                        let tx_ = alias!(tx as tx_after);
+                        let sub_query = tx_
+                            .select(tx_.field(tx::dsl::tx_sequence_number))
+                            .filter(tx_.field(tx::dsl::checkpoint_sequence_number).eq(*c as i64))
+                            .order(tx_.field(tx::dsl::tx_sequence_number).desc())
+                            .limit(1);
+
+                        query = query.filter(
+                            tx::dsl::tx_sequence_number
+                                .nullable()
+                                .gt(sub_query.single_value()),
+                        );
+                    }
+
+                    if let Some(c) = &filter.at_checkpoint {
+                        query = query.filter(tx::dsl::checkpoint_sequence_number.eq(*c as i64));
+                    }
+
+                    if let Some(c) = &filter.before_checkpoint {
+                        // See comment on handling `after_checkpoint` filter (above) for context.
+                        let tx_ = alias!(tx as tx_before);
+                        let sub_query = tx_
+                            .select(tx_.field(tx::dsl::tx_sequence_number))
+                            .filter(tx_.field(tx::dsl::checkpoint_sequence_number).eq(*c as i64))
+                            .order(tx_.field(tx::dsl::tx_sequence_number).asc())
+                            .limit(1);
+
+                        query = query.filter(
+                            tx::dsl::tx_sequence_number
+                                .nullable()
+                                .lt(sub_query.single_value()),
+                        );
+                    }
+
+                    if let Some(a) = &filter.sign_address {
+                        let sub_query = tx_senders::dsl::tx_senders
+                            .select(tx_senders::dsl::tx_sequence_number)
+                            .filter(tx_senders::dsl::sender.eq(a.into_vec()));
+                        query = query.filter(tx::dsl::tx_sequence_number.eq_any(sub_query));
+                    }
+
+                    if let Some(a) = &filter.recv_address {
+                        let sub_query = tx_recipients::dsl::tx_recipients
+                            .select(tx_recipients::dsl::tx_sequence_number)
+                            .filter(tx_recipients::dsl::recipient.eq(a.into_vec()));
+                        query = query.filter(tx::dsl::tx_sequence_number.eq_any(sub_query));
+                    }
+
+                    if let Some(o) = &filter.input_object {
+                        let sub_query = tx_input_objects::dsl::tx_input_objects
+                            .select(tx_input_objects::dsl::tx_sequence_number)
+                            .filter(tx_input_objects::dsl::object_id.eq(o.into_vec()));
+                        query = query.filter(tx::dsl::tx_sequence_number.eq_any(sub_query));
+                    }
+
+                    if let Some(o) = &filter.changed_object {
+                        let sub_query = tx_changed_objects::dsl::tx_changed_objects
+                            .select(tx_changed_objects::dsl::tx_sequence_number)
+                            .filter(tx_changed_objects::dsl::object_id.eq(o.into_vec()));
+                        query = query.filter(tx::dsl::tx_sequence_number.eq_any(sub_query));
+                    }
+
+                    if let Some(txs) = &filter.transaction_ids {
+                        let digests: Vec<_> = txs.iter().map(|d| d.to_vec()).collect();
+                        query = query.filter(tx::dsl::transaction_digest.eq_any(digests));
+                    }
+
+                    query
+                })
+            })
+            .await?;
+
+        let mut conn = Connection::new(prev, next);
+
+        for stored in results {
+            let cursor = Cursor::new(stored.cursor()).encode_cursor();
+            let transaction = TransactionBlock::try_from(stored)?;
+            conn.edges.push(Edge::new(cursor, transaction));
+        }
+
+        Ok(conn)
+    }
+}
+
+impl TransactionBlockFilter {
+    /// Try to create a filter whose results are the intersection of transaction blocks in `self`'s
+    /// results and transaction blocks in `other`'s results. This may not be possible if the
+    /// resulting filter is inconsistent in some way (e.g. a filter that requires one field to be
+    /// two different values simultaneously).
+    pub(crate) fn intersect(self, other: Self) -> Option<Self> {
+        fn by_eq<T: Eq>(a: T, b: T) -> Option<T> {
+            (a == b).then_some(a)
+        }
+
+        fn by_max<T: Ord>(a: T, b: T) -> Option<T> {
+            Some(a.max(b))
+        }
+
+        fn by_min<T: Ord>(a: T, b: T) -> Option<T> {
+            Some(a.min(b))
+        }
+
+        macro_rules! merge {
+            ($field:ident, $body:expr) => {
+                merge_filter(self.$field, other.$field, $body)
+            };
+        }
+
+        Some(Self {
+            function: merge!(function, FqNameFilter::intersect)?,
+            kind: merge!(kind, by_eq)?,
+
+            after_checkpoint: merge!(after_checkpoint, by_max)?,
+            at_checkpoint: merge!(at_checkpoint, by_eq)?,
+            before_checkpoint: merge!(before_checkpoint, by_min)?,
+
+            sign_address: merge!(sign_address, by_eq)?,
+            recv_address: merge!(recv_address, by_eq)?,
+            input_object: merge!(input_object, by_eq)?,
+            changed_object: merge!(changed_object, by_eq)?,
+
+            transaction_ids: merge!(transaction_ids, |a, b| {
+                let a = BTreeSet::from_iter(a.into_iter());
+                let b = BTreeSet::from_iter(b.into_iter());
+                Some(a.intersection(&b).cloned().collect())
+            })?,
+        })
+    }
+}
+
+impl Target<u64> for StoredTransaction {
+    type Source = transactions::table;
+
+    fn filter_ge<ST, GB>(cursor: &u64, query: Query<ST, GB>) -> Query<ST, GB> {
+        query.filter(transactions::dsl::tx_sequence_number.ge(*cursor as i64))
+    }
+
+    fn filter_le<ST, GB>(cursor: &u64, query: Query<ST, GB>) -> Query<ST, GB> {
+        query.filter(transactions::dsl::tx_sequence_number.le(*cursor as i64))
+    }
+
+    fn order<ST, GB>(asc: bool, query: Query<ST, GB>) -> Query<ST, GB> {
+        use transactions::dsl;
+        if asc {
+            query.order_by(dsl::tx_sequence_number.asc())
+        } else {
+            query.order_by(dsl::tx_sequence_number.desc())
+        }
+    }
+
+    fn cursor(&self) -> u64 {
+        self.tx_sequence_number as u64
+    }
+}
+
+impl TryFrom<StoredTransaction> for TransactionBlock {
+    type Error = Error;
+
+    fn try_from(stored: StoredTransaction) -> Result<Self, Error> {
+        let native = bcs::from_bytes(&stored.raw_transaction)
+            .map_err(|e| Error::Internal(format!("Error deserializing transaction block: {e}")))?;
+
+        Ok(TransactionBlock { stored, native })
+    }
+}
+
+/// Merges two optional filter values. If both values exist, `merge` is used to combine them, which
+/// returns some combined value if there is some consistent combination, and `None` otherwise. The
+/// overall function returns `Some(None)`, if the filters combined to no filter, `Some(Some(f))` if
+/// the filters combined to `f`, and `None` if the filters couldn't be combined.
+fn merge_filter<T>(
+    this: Option<T>,
+    that: Option<T>,
+    merge: impl FnOnce(T, T) -> Option<T>,
+) -> Option<Option<T>> {
+    match (this, that) {
+        (None, None) => Some(None),
+        (Some(this), None) => Some(Some(this)),
+        (None, Some(that)) => Some(Some(that)),
+        (Some(this), Some(that)) => merge(this, that).map(Some),
     }
 }

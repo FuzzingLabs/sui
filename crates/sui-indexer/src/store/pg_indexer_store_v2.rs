@@ -6,7 +6,6 @@ use itertools::Itertools;
 use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -33,12 +32,14 @@ use crate::models_v2::checkpoints::StoredCheckpoint;
 use crate::models_v2::display::StoredDisplay;
 use crate::models_v2::epoch::StoredEpochInfo;
 use crate::models_v2::events::StoredEvent;
-use crate::models_v2::objects::StoredObject;
+use crate::models_v2::objects::{
+    StoredDeletedHistoryObject, StoredDeletedObject, StoredHistoryObject, StoredObject,
+};
 use crate::models_v2::packages::StoredPackage;
 use crate::models_v2::transactions::StoredTransaction;
 use crate::schema_v2::{
-    checkpoints, display, epochs, events, objects, packages, transactions, tx_calls,
-    tx_changed_objects, tx_input_objects, tx_recipients, tx_senders,
+    checkpoints, display, epochs, events, objects, objects_history, objects_snapshot, packages,
+    transactions, tx_calls, tx_changed_objects, tx_input_objects, tx_recipients, tx_senders,
 };
 use crate::store::diesel_macro::{read_only_blocking, transactional_blocking_with_retry};
 use crate::store::module_resolver_v2::IndexerStoreModuleResolver;
@@ -47,6 +48,7 @@ use crate::types_v2::{
 };
 use crate::PgConnectionPool;
 
+use super::pg_partition_manager::{EpochPartitionData, PgPartitionManager};
 use super::IndexerStoreV2;
 
 #[macro_export]
@@ -72,6 +74,37 @@ const PG_COMMIT_PARALLEL_CHUNK_SIZE_PER_DB_TX: usize = 500;
 // Having this number too high may cause many db deadlocks because of
 // optimistic locking.
 const PG_COMMIT_OBJECTS_PARALLEL_CHUNK_SIZE_PER_DB_TX: usize = 500;
+const OBJECTS_SNAPSHOT_MAX_CHECKPOINT_LAG: usize = 900;
+const OBJECTS_SNAPSHOT_MIN_CHECKPOINT_LAG: usize = 300;
+
+// with rn = 1, we only select the latest version of each object,
+// so that we don't have to update the same object multiple times.
+const UPDATE_OBJECTS_SNAPSHOT_QUERY: &str = r"
+INSERT INTO objects_snapshot (object_id, object_version, object_status, object_digest, checkpoint_sequence_number, owner_type, owner_id, object_type, serialized_object, coin_type, coin_balance, df_kind, df_name, df_object_type, df_object_id)
+SELECT object_id, object_version, object_status, object_digest, checkpoint_sequence_number, owner_type, owner_id, object_type, serialized_object, coin_type, coin_balance, df_kind, df_name, df_object_type, df_object_id
+FROM (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY object_id ORDER BY object_version DESC) as rn
+    FROM objects_history
+    WHERE checkpoint_sequence_number >= $1 AND checkpoint_sequence_number < $2
+) as subquery
+WHERE rn = 1
+ON CONFLICT (object_id) DO UPDATE
+SET object_version = EXCLUDED.object_version,
+    object_status = EXCLUDED.object_status,
+    object_digest = EXCLUDED.object_digest,
+    checkpoint_sequence_number = EXCLUDED.checkpoint_sequence_number,
+    owner_type = EXCLUDED.owner_type,
+    owner_id = EXCLUDED.owner_id,
+    object_type = EXCLUDED.object_type,
+    serialized_object = EXCLUDED.serialized_object,
+    coin_type = EXCLUDED.coin_type,
+    coin_balance = EXCLUDED.coin_balance,
+    df_kind = EXCLUDED.df_kind,
+    df_name = EXCLUDED.df_name,
+    df_object_type = EXCLUDED.df_object_type,
+    df_object_id = EXCLUDED.df_object_id;
+";
 
 #[derive(Clone)]
 pub struct PgIndexerStoreV2 {
@@ -80,6 +113,9 @@ pub struct PgIndexerStoreV2 {
     metrics: IndexerMetrics,
     parallel_chunk_size: usize,
     parallel_objects_chunk_size: usize,
+    object_snapshot_min_checkpoint_lag: usize,
+    object_snapshot_max_checkpoint_lag: usize,
+    partition_manager: PgPartitionManager,
 }
 
 impl PgIndexerStoreV2 {
@@ -95,13 +131,33 @@ impl PgIndexerStoreV2 {
             .unwrap_or_else(|_e| PG_COMMIT_OBJECTS_PARALLEL_CHUNK_SIZE_PER_DB_TX.to_string())
             .parse::<usize>()
             .unwrap();
+        let object_snapshot_min_checkpoint_lag =
+            std::env::var("OBJECTS_SNAPSHOT_MIN_CHECKPOINT_LAG")
+                .unwrap_or_else(|_e| OBJECTS_SNAPSHOT_MIN_CHECKPOINT_LAG.to_string())
+                .parse::<usize>()
+                .unwrap();
+        let object_snapshot_max_checkpoint_lag =
+            std::env::var("OBJECTS_SNAPSHOT_MAX_CHECKPOINT_LAG")
+                .unwrap_or_else(|_e| OBJECTS_SNAPSHOT_MAX_CHECKPOINT_LAG.to_string())
+                .parse::<usize>()
+                .unwrap();
+        let partition_manager = PgPartitionManager::new(blocking_cp.clone())
+            .expect("Failed to initialize partition manager");
+
         Self {
             blocking_cp,
             module_cache,
             metrics,
             parallel_chunk_size,
             parallel_objects_chunk_size,
+            object_snapshot_min_checkpoint_lag,
+            object_snapshot_max_checkpoint_lag,
+            partition_manager,
         }
+    }
+
+    pub fn blocking_cp(&self) -> PgConnectionPool {
+        self.blocking_cp.clone()
     }
 
     fn get_latest_tx_checkpoint_sequence_number(&self) -> Result<Option<u64>, IndexerError> {
@@ -112,6 +168,18 @@ impl PgIndexerStoreV2 {
                 .map(|v| v.map(|v| v as u64))
         })
         .context("Failed reading latest checkpoint sequence number from PostgresDB")
+    }
+
+    fn get_latest_object_snapshot_checkpoint_sequence_number(
+        &self,
+    ) -> Result<Option<u64>, IndexerError> {
+        read_only_blocking!(&self.blocking_cp, |conn| {
+            objects_snapshot::dsl::objects_snapshot
+                .select(max(objects_snapshot::checkpoint_sequence_number))
+                .first::<Option<i64>>(conn)
+                .map(|v| v.map(|v| v as u64))
+        })
+        .context("Failed reading latest object snapshot checkpoint sequence number from PostgresDB")
     }
 
     // Note: here we treat Deleted as NotExists too
@@ -230,7 +298,7 @@ impl PgIndexerStoreV2 {
                             objects::object_id.eq_any(
                                 deleted_objects_chunk
                                     .iter()
-                                    .map(|o| o.to_vec())
+                                    .map(|o| o.object_id.clone())
                                     .collect::<Vec<_>>(),
                             ),
                         ),
@@ -252,6 +320,76 @@ impl PgIndexerStoreV2 {
                 mutated_objects.len() + deleted_object_ids.len(),
             )
         })
+    }
+
+    fn persist_objects_history_chunk(
+        &self,
+        objects: Vec<ObjectChangeToCommit>,
+    ) -> Result<(), IndexerError> {
+        let mut mutated_objects: Vec<StoredHistoryObject> = vec![];
+        let mut deleted_object_ids: Vec<StoredDeletedHistoryObject> = vec![];
+        for object in objects {
+            match object {
+                ObjectChangeToCommit::MutatedObject(stored_object) => {
+                    mutated_objects.push(stored_object.into());
+                }
+                ObjectChangeToCommit::DeletedObject(stored_deleted_object) => {
+                    deleted_object_ids.push(stored_deleted_object.into());
+                }
+            }
+        }
+
+        transactional_blocking_with_retry!(
+            &self.blocking_cp,
+            |conn| {
+                for mutated_object_change_chunk in
+                    mutated_objects.chunks(PG_COMMIT_CHUNK_SIZE_INTRA_DB_TX)
+                {
+                    diesel::insert_into(objects_history::table)
+                        .values(mutated_object_change_chunk)
+                        .on_conflict_do_nothing()
+                        .execute(conn)
+                        .map_err(IndexerError::from)
+                        .context("Failed to write object mutations to objects_history in DB.")?;
+                }
+
+                for deleted_objects_chunk in
+                    deleted_object_ids.chunks(PG_COMMIT_CHUNK_SIZE_INTRA_DB_TX)
+                {
+                    diesel::insert_into(objects_history::table)
+                        .values(deleted_objects_chunk)
+                        .on_conflict_do_nothing()
+                        .execute(conn)
+                        .map_err(IndexerError::from)
+                        .context("Failed to write object deletions to objects_history in DB.")?;
+                }
+
+                Ok::<(), IndexerError>(())
+            },
+            Duration::from_secs(60)
+        )
+        .tap(|_| {
+            info!(
+                "Persisted {} chunked objects history",
+                mutated_objects.len() + deleted_object_ids.len(),
+            )
+        })
+    }
+
+    fn persist_object_snapshot(&self, start_cp: u64, end_cp: u64) -> Result<(), IndexerError> {
+        transactional_blocking_with_retry!(
+            &self.blocking_cp,
+            |conn| {
+                RunQueryDsl::execute(
+                    diesel::sql_query(UPDATE_OBJECTS_SNAPSHOT_QUERY)
+                        .bind::<diesel::sql_types::BigInt, _>(start_cp as i64)
+                        .bind::<diesel::sql_types::BigInt, _>(end_cp as i64),
+                    conn,
+                )
+            },
+            Duration::from_secs(10)
+        )?;
+        Ok(())
     }
 
     fn persist_checkpoints(&self, checkpoints: Vec<IndexedCheckpoint>) -> Result<(), IndexerError> {
@@ -563,74 +701,100 @@ impl PgIndexerStoreV2 {
         Ok(())
     }
 
-    fn persist_epoch(&self, data: &Vec<EpochToCommit>) -> Result<(), IndexerError> {
-        if data.is_empty() {
-            return Ok(());
-        }
+    fn persist_epoch(&self, epoch: EpochToCommit) -> Result<(), IndexerError> {
         let guard = self
             .metrics
-            .checkpoint_db_commit_latency_epochs
+            .checkpoint_db_commit_latency_epoch
             .start_timer();
+        let epoch_id = epoch.new_epoch.epoch;
         transactional_blocking_with_retry!(
             &self.blocking_cp,
             |conn| {
-                for epoch_data in data {
-                    if let Some(last_epoch) = &epoch_data.last_epoch {
-                        let last_epoch_id = last_epoch.epoch;
-                        let last_epoch = StoredEpochInfo::from_epoch_end_info(last_epoch);
-                        info!(last_epoch_id, "Persisting epoch end data: {:?}", last_epoch);
-                        diesel::insert_into(epochs::table)
-                            .values(last_epoch)
-                            .on_conflict(epochs::epoch)
-                            .do_update()
-                            .set((
-                                // Note: it's crucial that we don't include epoch beinning info
-                                // below as we don't want to override them. They are
-                                // validators, first_checkpoint_id, epoch_start_timestamp and so on.
-                                epochs::epoch_total_transactions
-                                    .eq(excluded(epochs::epoch_total_transactions)),
-                                epochs::last_checkpoint_id.eq(excluded(epochs::last_checkpoint_id)),
-                                epochs::epoch_end_timestamp
-                                    .eq(excluded(epochs::epoch_end_timestamp)),
-                                epochs::storage_fund_reinvestment
-                                    .eq(excluded(epochs::storage_fund_reinvestment)),
-                                epochs::storage_charge.eq(excluded(epochs::storage_charge)),
-                                epochs::storage_rebate.eq(excluded(epochs::storage_rebate)),
-                                epochs::storage_fund_balance
-                                    .eq(excluded(epochs::storage_fund_balance)),
-                                epochs::stake_subsidy_amount
-                                    .eq(excluded(epochs::stake_subsidy_amount)),
-                                epochs::total_gas_fees.eq(excluded(epochs::total_gas_fees)),
-                                epochs::total_stake_rewards_distributed
-                                    .eq(excluded(epochs::total_stake_rewards_distributed)),
-                                epochs::leftover_storage_fund_inflow
-                                    .eq(excluded(epochs::leftover_storage_fund_inflow)),
-                                epochs::new_total_stake.eq(excluded(epochs::new_total_stake)),
-                                epochs::epoch_commitments.eq(excluded(epochs::epoch_commitments)),
-                                epochs::next_epoch_reference_gas_price
-                                    .eq(excluded(epochs::next_epoch_reference_gas_price)),
-                                epochs::next_epoch_protocol_version
-                                    .eq(excluded(epochs::next_epoch_protocol_version)),
-                            ))
-                            .execute(conn)?;
-                    }
-                    let epoch_id = epoch_data.new_epoch.epoch;
-                    info!(epoch_id, "Persisting initial epoch state");
-                    let new_epoch =
-                        StoredEpochInfo::from_epoch_beginning_info(&epoch_data.new_epoch);
+                if let Some(last_epoch) = &epoch.last_epoch {
+                    let last_epoch_id = last_epoch.epoch;
+                    let last_epoch = StoredEpochInfo::from_epoch_end_info(last_epoch);
+                    info!(last_epoch_id, "Persisting epoch end data: {:?}", last_epoch);
                     diesel::insert_into(epochs::table)
-                        .values(new_epoch)
-                        .on_conflict_do_nothing()
+                        .values(last_epoch)
+                        .on_conflict(epochs::epoch)
+                        .do_update()
+                        .set((
+                            // Note: Exclude epoch beginning info except system_state below.
+                            // This is to ensure that epoch beginning info columns are not overridden with default values,
+                            // because these columns are default values in `last_epoch`.
+                            epochs::system_state.eq(excluded(epochs::system_state)),
+                            epochs::epoch_total_transactions
+                                .eq(excluded(epochs::epoch_total_transactions)),
+                            epochs::last_checkpoint_id.eq(excluded(epochs::last_checkpoint_id)),
+                            epochs::epoch_end_timestamp.eq(excluded(epochs::epoch_end_timestamp)),
+                            epochs::storage_fund_reinvestment
+                                .eq(excluded(epochs::storage_fund_reinvestment)),
+                            epochs::storage_charge.eq(excluded(epochs::storage_charge)),
+                            epochs::storage_rebate.eq(excluded(epochs::storage_rebate)),
+                            epochs::stake_subsidy_amount.eq(excluded(epochs::stake_subsidy_amount)),
+                            epochs::total_gas_fees.eq(excluded(epochs::total_gas_fees)),
+                            epochs::total_stake_rewards_distributed
+                                .eq(excluded(epochs::total_stake_rewards_distributed)),
+                            epochs::leftover_storage_fund_inflow
+                                .eq(excluded(epochs::leftover_storage_fund_inflow)),
+                            epochs::epoch_commitments.eq(excluded(epochs::epoch_commitments)),
+                        ))
                         .execute(conn)?;
                 }
+                let epoch_id = epoch.new_epoch.epoch;
+                info!(epoch_id, "Persisting epoch beginning info");
+                let new_epoch = StoredEpochInfo::from_epoch_beginning_info(&epoch.new_epoch);
+                diesel::insert_into(epochs::table)
+                    .values(new_epoch)
+                    .on_conflict_do_nothing()
+                    .execute(conn)?;
                 Ok::<(), IndexerError>(())
             },
             Duration::from_secs(60)
         )
         .tap(|_| {
             let elapsed = guard.stop_and_record();
-            info!(elapsed, "Persisted {} epochs", data.len())
+            info!(elapsed, epoch_id, "Persisted epoch beginning info");
         })
+    }
+
+    fn advance_epoch(&self, epoch_to_commit: EpochToCommit) -> Result<(), IndexerError> {
+        let last_epoch_id = epoch_to_commit.last_epoch.as_ref().map(|e| e.epoch);
+        // partition_0 has been created, so no need to advance it.
+        if let Some(last_epoch_id) = last_epoch_id {
+            let last_db_epoch: Option<StoredEpochInfo> =
+                read_only_blocking!(&self.blocking_cp, |conn| {
+                    epochs::table
+                        .filter(epochs::epoch.eq(last_epoch_id as i64))
+                        .first::<StoredEpochInfo>(conn)
+                        .optional()
+                })
+                .context("Failed to read last epoch from PostgresDB")?;
+            if let Some(last_epoch) = last_db_epoch {
+                let epoch_partition_data =
+                    EpochPartitionData::compose_data(epoch_to_commit, last_epoch);
+                let table_partitions = self.partition_manager.get_table_partitions()?;
+                for (table, last_partition) in table_partitions {
+                    let guard = self.metrics.advance_epoch_latency.start_timer();
+                    self.partition_manager.advance_table_epoch_partition(
+                        table.clone(),
+                        last_partition,
+                        &epoch_partition_data,
+                    )?;
+                    let elapsed = guard.stop_and_record();
+                    info!(
+                        elapsed,
+                        "Advanced epoch partition {} for table {}",
+                        last_partition,
+                        table.clone()
+                    );
+                }
+            } else {
+                tracing::error!("Last epoch: {} from PostgresDB is None.", last_epoch_id);
+            }
+        }
+
+        Ok(())
     }
 
     fn get_network_total_transactions_by_end_of_epoch(
@@ -700,6 +864,15 @@ impl IndexerStoreV2 for PgIndexerStoreV2 {
             .await
     }
 
+    async fn get_latest_object_snapshot_checkpoint_sequence_number(
+        &self,
+    ) -> Result<Option<u64>, IndexerError> {
+        self.execute_in_blocking_worker(|this| {
+            this.get_latest_object_snapshot_checkpoint_sequence_number()
+        })
+        .await
+    }
+
     async fn get_object_read(
         &self,
         object_id: ObjectID,
@@ -740,6 +913,82 @@ impl IndexerStoreV2 for PgIndexerStoreV2 {
             })?;
         let elapsed = guard.stop_and_record();
         info!(elapsed, "Persisted {} objects", len);
+        Ok(())
+    }
+
+    async fn persist_object_history(
+        &self,
+        object_changes: Vec<TransactionObjectChangesToCommit>,
+    ) -> Result<(), IndexerError> {
+        if object_changes.is_empty() {
+            return Ok(());
+        }
+        let objects = make_objects_history_to_commit(object_changes);
+        let guard = self
+            .metrics
+            .checkpoint_db_commit_latency_objects_history
+            .start_timer();
+
+        let len = objects.len();
+        let chunks = chunk!(objects, self.parallel_objects_chunk_size);
+        let futures = chunks
+            .into_iter()
+            .map(|c| self.spawn_blocking_task(move |this| this.persist_objects_history_chunk(c)))
+            .collect::<Vec<_>>();
+
+        futures::future::join_all(futures)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                IndexerError::PostgresWriteError(format!(
+                    "Failed to persist all objects history chunks: {:?}",
+                    e
+                ))
+            })?;
+        let elapsed = guard.stop_and_record();
+        info!(elapsed, "Persisted {} objects history", len);
+        Ok(())
+    }
+
+    // The `objects_snapshot` table maintains a delayed snapshot of the `objects` table,
+    // controlled by `object_snapshot_max_checkpoint_lag` (max lag) and
+    // `object_snapshot_min_checkpoint_lag` (min lag). For instance, with a max lag of 900
+    // and a min lag of 300 checkpoints, the `objects_snapshot` table will lag behind the
+    // `objects` table by 300 to 900 checkpoints. The snapshot is updated when the lag
+    // exceeds the max lag threshold, and updates continue until the lag is reduced to
+    // the min lag threshold. Then, we have a consistent read range between
+    // `latest_snapshot_cp` and `latest_cp` based on `objects_snapshot` and `objects_history`,
+    // where the size of this range varies between the min and max lag values.
+    async fn persist_object_snapshot(&self) -> Result<(), IndexerError> {
+        let latest_cp = self
+            .get_latest_tx_checkpoint_sequence_number()?
+            .unwrap_or_default();
+        let latest_snapshot_cp = self
+            .get_latest_object_snapshot_checkpoint_sequence_number()?
+            .unwrap_or_default();
+
+        if latest_cp <= latest_snapshot_cp + self.object_snapshot_max_checkpoint_lag as u64 {
+            return Ok(());
+        }
+        // make sure cp 0 is handled
+        let start_cp = if latest_snapshot_cp == 0 {
+            0
+        } else {
+            latest_snapshot_cp + 1
+        };
+        // with MAX and MIN, the CSR range will vary from MIN cps to MAX cps
+        let snapshot_window = self.object_snapshot_max_checkpoint_lag as u64
+            - self.object_snapshot_min_checkpoint_lag as u64;
+        let guard = self.metrics.update_object_snapshot_latency.start_timer();
+        self.persist_object_snapshot(start_cp, start_cp + snapshot_window)?;
+        let elapsed = guard.stop_and_record();
+        info!(
+            elapsed,
+            "Persisted snapshot for checkpoints from {} to {}",
+            start_cp,
+            start_cp + snapshot_window,
+        );
         Ok(())
     }
 
@@ -866,8 +1115,13 @@ impl IndexerStoreV2 for PgIndexerStoreV2 {
         Ok(())
     }
 
-    async fn persist_epoch(&self, data: Vec<EpochToCommit>) -> Result<(), IndexerError> {
-        self.execute_in_blocking_worker(move |this| this.persist_epoch(&data))
+    async fn persist_epoch(&self, epoch: EpochToCommit) -> Result<(), IndexerError> {
+        self.execute_in_blocking_worker(move |this| this.persist_epoch(epoch))
+            .await
+    }
+
+    async fn advance_epoch(&self, epoch: EpochToCommit) -> Result<(), IndexerError> {
+        self.execute_in_blocking_worker(move |this| this.advance_epoch(epoch))
             .await
     }
 
@@ -893,17 +1147,18 @@ fn make_final_list_of_objects_to_commit(
     tx_object_changes: Vec<TransactionObjectChangesToCommit>,
 ) -> Vec<ObjectChangeToCommit> {
     let deleted_objects = tx_object_changes
-        .iter()
-        .flat_map(|changes| &changes.deleted_objects)
-        .map(|o| o.0)
-        .collect::<HashSet<_>>();
+        .clone()
+        .into_iter()
+        .flat_map(|changes| changes.deleted_objects)
+        .map(|o| (o.object_id, o.into()))
+        .collect::<HashMap<ObjectID, StoredDeletedObject>>();
 
     let mutated_objects = tx_object_changes
         .into_iter()
         .flat_map(|changes| changes.changed_objects);
     let mut latest_objects = HashMap::new();
     for object in mutated_objects {
-        if deleted_objects.contains(&object.object_id) {
+        if deleted_objects.contains_key(&object.object_id) {
             continue;
         }
         match latest_objects.entry(object.object_id) {
@@ -918,7 +1173,7 @@ fn make_final_list_of_objects_to_commit(
         }
     }
     deleted_objects
-        .into_iter()
+        .into_values()
         .map(ObjectChangeToCommit::DeletedObject)
         .chain(
             latest_objects
@@ -929,8 +1184,33 @@ fn make_final_list_of_objects_to_commit(
         .collect()
 }
 
+fn make_objects_history_to_commit(
+    tx_object_changes: Vec<TransactionObjectChangesToCommit>,
+) -> Vec<ObjectChangeToCommit> {
+    let deleted_objects: Vec<StoredDeletedObject> = tx_object_changes
+        .clone()
+        .into_iter()
+        .flat_map(|changes| changes.deleted_objects)
+        .map(|o| o.into())
+        .collect();
+    let mutated_objects: Vec<StoredObject> = tx_object_changes
+        .into_iter()
+        .flat_map(|changes| changes.changed_objects)
+        .map(|o| o.into())
+        .collect();
+    deleted_objects
+        .into_iter()
+        .map(ObjectChangeToCommit::DeletedObject)
+        .chain(
+            mutated_objects
+                .into_iter()
+                .map(ObjectChangeToCommit::MutatedObject),
+        )
+        .collect()
+}
+
 #[allow(clippy::large_enum_variant)]
 enum ObjectChangeToCommit {
     MutatedObject(StoredObject),
-    DeletedObject(ObjectID),
+    DeletedObject(StoredDeletedObject),
 }

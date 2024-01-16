@@ -1,9 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::object_runtime::LocalProtocolConfig;
+use crate::object_runtime::get_all_uids;
 use move_binary_format::errors::{PartialVMError, PartialVMResult};
-use move_core_types::{effects::Op, value::MoveTypeLayout, vm_status::StatusCode};
+use move_core_types::{
+    annotated_value as A, effects::Op, runtime_value as R, vm_status::StatusCode,
+};
 use move_vm_types::{
     loaded_data::runtime_types::Type,
     values::{GlobalValue, StructRef, Value},
@@ -12,7 +14,7 @@ use std::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
 };
-use sui_protocol_config::{check_limit_by_meter, LimitThresholdCrossed};
+use sui_protocol_config::{check_limit_by_meter, LimitThresholdCrossed, ProtocolConfig};
 use sui_types::{
     base_types::{MoveObjectType, ObjectID, SequenceNumber},
     committee::EpochId,
@@ -23,7 +25,6 @@ use sui_types::{
     storage::ChildObjectResolver,
 };
 
-use super::get_all_uids;
 pub(super) struct ChildObject {
     pub(super) owner: ObjectID,
     pub(super) ty: Type,
@@ -45,13 +46,16 @@ struct Inner<'a> {
     // If it was a child object, it resolves to the root parent's sequence number.
     // Otherwise, it is just the sequence number at the beginning of the transaction.
     root_version: BTreeMap<ObjectID, SequenceNumber>,
+    // A map from a wrapped object to the object it was contained in at the
+    // beginning of the transaction.
+    wrapped_object_containers: BTreeMap<ObjectID, ObjectID>,
     // cached objects from the resolver. An object might be in this map but not in the store
     // if it's existence was queried, but the value was not used.
     cached_objects: BTreeMap<ObjectID, Option<Object>>,
     // whether or not this TX is gas metered
     is_metered: bool,
-    // Local protocol config used to enforce limits
-    local_config: LocalProtocolConfig,
+    // Protocol config used to enforce limits
+    protocol_config: &'a ProtocolConfig,
     // Metrics for reporting exceeded limits
     metrics: Arc<LimitsMetrics>,
     // Epoch ID for the current transaction. Used for receiving objects.
@@ -78,13 +82,15 @@ pub(crate) enum ObjectResult<V> {
     Loaded(V),
 }
 
+type LoadedWithMetadataResult<V> = Option<(V, DynamicallyLoadedObjectMetadata)>;
+
 impl<'a> Inner<'a> {
     fn receive_object_from_store(
         &self,
         owner: ObjectID,
         child: ObjectID,
         version: SequenceNumber,
-    ) -> PartialVMResult<Option<(MoveObject, DynamicallyLoadedObjectMetadata)>> {
+    ) -> PartialVMResult<LoadedWithMetadataResult<MoveObject>> {
         let child_opt = self
             .resolver
             .get_object_received_at_version(&owner, &child, version, self.current_epoch_id)
@@ -125,7 +131,7 @@ impl<'a> Inner<'a> {
                     )),
                 );
             }
-            match object.data {
+            match object.into_inner().data {
                 Data::Package(_) => {
                     return Err(PartialVMError::new(StatusCode::STORAGE_ERROR).with_message(
                         format!(
@@ -204,9 +210,9 @@ impl<'a> Inner<'a> {
             if let LimitThresholdCrossed::Hard(_, lim) = check_limit_by_meter!(
                 self.is_metered,
                 cached_objects_count,
-                self.local_config.object_runtime_max_num_cached_objects,
-                self.local_config
-                    .object_runtime_max_num_cached_objects_system_tx,
+                self.protocol_config.object_runtime_max_num_cached_objects(),
+                self.protocol_config
+                    .object_runtime_max_num_cached_objects_system_tx(),
                 self.metrics.excessive_object_runtime_cached_objects
             ) {
                 return Err(PartialVMError::new(StatusCode::MEMORY_LIMIT_EXCEEDED)
@@ -240,8 +246,8 @@ impl<'a> Inner<'a> {
         parent: ObjectID,
         child: ObjectID,
         child_ty: &Type,
-        child_ty_layout: &MoveTypeLayout,
-        child_ty_fully_annotated_layout: &MoveTypeLayout,
+        child_ty_layout: &R::MoveTypeLayout,
+        child_ty_fully_annotated_layout: &A::MoveTypeLayout,
         child_move_type: MoveObjectType,
     ) -> PartialVMResult<ObjectResult<(Type, MoveObjectType, GlobalValue)>> {
         let obj = match self.get_or_fetch_object_from_store(parent, child)? {
@@ -288,6 +294,10 @@ impl<'a> Inner<'a> {
             debug_assert!(contained_uids.contains(&child));
             for id in contained_uids {
                 self.root_version.insert(id, v);
+                if id != child {
+                    let prev = self.wrapped_object_containers.insert(id, child);
+                    debug_assert!(prev.is_none())
+                }
             }
         }
         Ok(ObjectResult::Loaded((
@@ -301,7 +311,7 @@ impl<'a> Inner<'a> {
 fn deserialize_move_object(
     obj: &MoveObject,
     child_ty: &Type,
-    child_ty_layout: &MoveTypeLayout,
+    child_ty_layout: &R::MoveTypeLayout,
     child_move_type: MoveObjectType,
 ) -> PartialVMResult<ObjectResult<(Type, MoveObjectType, Value)>> {
     let child_id = obj.id();
@@ -330,8 +340,9 @@ impl<'a> ChildObjectStore<'a> {
     pub(super) fn new(
         resolver: &'a dyn ChildObjectResolver,
         root_version: BTreeMap<ObjectID, SequenceNumber>,
+        wrapped_object_containers: BTreeMap<ObjectID, ObjectID>,
         is_metered: bool,
-        local_config: LocalProtocolConfig,
+        protocol_config: &'a ProtocolConfig,
         metrics: Arc<LimitsMetrics>,
         current_epoch_id: EpochId,
     ) -> Self {
@@ -339,9 +350,10 @@ impl<'a> ChildObjectStore<'a> {
             inner: Inner {
                 resolver,
                 root_version,
+                wrapped_object_containers,
                 cached_objects: BTreeMap::new(),
                 is_metered,
-                local_config,
+                protocol_config,
                 metrics,
                 current_epoch_id,
             },
@@ -356,10 +368,10 @@ impl<'a> ChildObjectStore<'a> {
         child: ObjectID,
         child_version: SequenceNumber,
         child_ty: &Type,
-        child_layout: &MoveTypeLayout,
-        child_fully_annotated_layout: &MoveTypeLayout,
+        child_layout: &R::MoveTypeLayout,
+        child_fully_annotated_layout: &A::MoveTypeLayout,
         child_move_type: MoveObjectType,
-    ) -> PartialVMResult<Option<(ObjectResult<Value>, DynamicallyLoadedObjectMetadata)>> {
+    ) -> PartialVMResult<LoadedWithMetadataResult<ObjectResult<Value>>> {
         let Some((obj, obj_meta)) =
             self.inner
                 .receive_object_from_store(parent, child, child_version)?
@@ -383,6 +395,10 @@ impl<'a> ChildObjectStore<'a> {
                         })?;
                     for id in contained_uids {
                         self.inner.root_version.insert(id, child_version);
+                        if id != child {
+                            let prev = self.inner.wrapped_object_containers.insert(id, child);
+                            debug_assert!(prev.is_none())
+                        }
                     }
                     (ObjectResult::Loaded(v), obj_meta)
                 }
@@ -426,8 +442,8 @@ impl<'a> ChildObjectStore<'a> {
         parent: ObjectID,
         child: ObjectID,
         child_ty: &Type,
-        child_layout: &MoveTypeLayout,
-        child_fully_annotated_layout: &MoveTypeLayout,
+        child_layout: &R::MoveTypeLayout,
+        child_fully_annotated_layout: &A::MoveTypeLayout,
         child_move_type: MoveObjectType,
     ) -> PartialVMResult<ObjectResult<&mut ChildObject>> {
         let store_entries_count = self.store.len() as u64;
@@ -448,10 +464,12 @@ impl<'a> ChildObjectStore<'a> {
                 if let LimitThresholdCrossed::Hard(_, lim) = check_limit_by_meter!(
                     self.is_metered,
                     store_entries_count,
-                    self.inner.local_config.object_runtime_max_num_store_entries,
                     self.inner
-                        .local_config
-                        .object_runtime_max_num_store_entries_system_tx,
+                        .protocol_config
+                        .object_runtime_max_num_store_entries(),
+                    self.inner
+                        .protocol_config
+                        .object_runtime_max_num_store_entries_system_tx(),
                     self.inner.metrics.excessive_object_runtime_store_entries
                 ) {
                     return Err(PartialVMError::new(StatusCode::MEMORY_LIMIT_EXCEEDED)
@@ -494,10 +512,12 @@ impl<'a> ChildObjectStore<'a> {
         if let LimitThresholdCrossed::Hard(_, lim) = check_limit_by_meter!(
             self.is_metered,
             self.store.len(),
-            self.inner.local_config.object_runtime_max_num_store_entries,
             self.inner
-                .local_config
-                .object_runtime_max_num_store_entries_system_tx,
+                .protocol_config
+                .object_runtime_max_num_store_entries(),
+            self.inner
+                .protocol_config
+                .object_runtime_max_num_store_entries_system_tx(),
             self.inner.metrics.excessive_object_runtime_store_entries
         ) {
             return Err(PartialVMError::new(StatusCode::MEMORY_LIMIT_EXCEEDED)
@@ -523,9 +543,10 @@ impl<'a> ChildObjectStore<'a> {
                         ),
                 );
             }
-            if self.inner.local_config.loaded_child_object_format {
+            if self.inner.protocol_config.loaded_child_object_format() {
                 // double check format did not change
-                if !self.inner.local_config.loaded_child_object_format_type && child_ty != &ty {
+                if !self.inner.protocol_config.loaded_child_object_format_type() && child_ty != &ty
+                {
                     let msg = format!("Type changed for child {child} when setting the value back");
                     return Err(
                         PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
@@ -558,6 +579,10 @@ impl<'a> ChildObjectStore<'a> {
 
     pub(super) fn cached_objects(&self) -> &BTreeMap<ObjectID, Option<Object>> {
         &self.inner.cached_objects
+    }
+
+    pub(super) fn wrapped_object_containers(&self) -> &BTreeMap<ObjectID, ObjectID> {
+        &self.inner.wrapped_object_containers
     }
 
     // retrieve the `Op` effects for the child objects

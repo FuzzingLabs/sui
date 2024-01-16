@@ -28,13 +28,20 @@ use anemo_tower::{
 };
 use async_trait::async_trait;
 use config::{Authority, AuthorityIdentifier, ChainIdentifier, Committee, Parameters, WorkerCache};
-use crypto::{traits::EncodeDecodeBase64, RandomnessPrivateKey};
+use crypto::{
+    traits::EncodeDecodeBase64, RandomnessPartialSignature, RandomnessPrivateKey,
+    RandomnessSignature,
+};
 use crypto::{KeyPair, NetworkKeyPair, NetworkPublicKey, Signature};
 use fastcrypto::{
     hash::Hash,
     serde_helpers::ToFromByteArray,
     signature_service::SignatureService,
     traits::{KeyPair as _, ToFromBytes},
+};
+use fastcrypto_tbls::{
+    tbls::ThresholdBls,
+    types::{PublicVssKey, ThresholdBls12381MinSig},
 };
 use mysten_metrics::metered_channel::{channel_with_total, Receiver, Sender};
 use mysten_metrics::monitored_scope;
@@ -46,7 +53,6 @@ use network::{
 use network::{failpoints::FailpointsMakeCallbackHandler, metrics::MetricsMakeCallbackHandler};
 use parking_lot::Mutex;
 use prometheus::Registry;
-use std::collections::{btree_map::Entry, BTreeMap, HashMap};
 use std::{
     cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
@@ -55,7 +61,11 @@ use std::{
     thread::sleep,
     time::Duration,
 };
-use storage::{CertificateStore, PayloadStore, ProposerStore, VoteDigestStore};
+use std::{
+    collections::{btree_map::Entry, BTreeMap, HashMap},
+    sync::OnceLock,
+};
+use storage::{CertificateStore, PayloadStore, ProposerStore, RandomnessStore, VoteDigestStore};
 use sui_protocol_config::ProtocolConfig;
 use tokio::{sync::oneshot, time::Instant};
 use tokio::{sync::watch, task::JoinHandle};
@@ -66,9 +76,11 @@ use types::{
     error::{DagError, DagResult},
     now, validate_received_certificate_version, Certificate, CertificateAPI, CertificateDigest,
     FetchCertificatesRequest, FetchCertificatesResponse, Header, HeaderAPI, MetadataAPI,
-    PreSubscribedBroadcastSender, PrimaryToPrimary, PrimaryToPrimaryServer, RequestVoteRequest,
-    RequestVoteResponse, Round, SendCertificateRequest, SendCertificateResponse, Vote, VoteInfoAPI,
-    WorkerOthersBatchMessage, WorkerOwnBatchMessage, WorkerToPrimary, WorkerToPrimaryServer,
+    PreSubscribedBroadcastSender, PrimaryToPrimary, PrimaryToPrimaryServer, RandomnessRound,
+    RequestVoteRequest, RequestVoteResponse, Round, SendCertificateRequest,
+    SendCertificateResponse, SendRandomnessPartialSignaturesRequest, SystemMessage, Vote,
+    VoteInfoAPI, WorkerOthersBatchMessage, WorkerOwnBatchMessage, WorkerToPrimary,
+    WorkerToPrimaryServer,
 };
 
 #[cfg(test)]
@@ -103,6 +115,7 @@ impl Primary {
         proposer_store: ProposerStore,
         payload_store: PayloadStore,
         vote_digest_store: VoteDigestStore,
+        randomness_store: RandomnessStore,
         tx_new_certificates: Sender<Certificate>,
         rx_committed_certificates: Receiver<(Round, Vec<Certificate>)>,
         rx_consensus_round_updates: watch::Receiver<ConsensusRound>,
@@ -160,6 +173,14 @@ impl Primary {
             &primary_channel_metrics.tx_committed_own_headers,
             &primary_channel_metrics.tx_committed_own_headers_total,
         );
+        let (tx_randomness_partial_signatures, rx_randomness_partial_signatures) =
+            channel_with_total(
+                CHANNEL_CAPACITY,
+                &primary_channel_metrics.tx_randomness_partial_signatures,
+                &primary_channel_metrics.tx_randomness_partial_signatures_total,
+            );
+
+        let randomness_vss_key_lock = Arc::new(OnceLock::new());
 
         // we need to hack the gauge from this consensus channel into the primary registry
         // This avoids a cyclic dependency in the initialization of consensus and primary
@@ -218,7 +239,9 @@ impl Primary {
             signature_service: signature_service.clone(),
             certificate_store: certificate_store.clone(),
             vote_digest_store,
-            rx_narwhal_round_updates,
+            rx_narwhal_round_updates: rx_narwhal_round_updates.clone(),
+            randomness_vss_key_lock: randomness_vss_key_lock.clone(),
+            tx_randomness_partial_signatures,
             parent_digests: Default::default(),
             metrics: node_metrics.clone(),
         })
@@ -365,15 +388,14 @@ impl Primary {
                     network = n;
                     break;
                 }
-                Err(_) => {
+                Err(e) => {
                     retries_left -= 1;
 
                     if retries_left <= 0 {
                         panic!("Failed to initialize Network!");
                     }
                     error!(
-                        "Address {} should be available for the primary Narwhal service, retrying in one second",
-                        addr
+                        "Address {addr} should be available for the primary Narwhal service, retrying in one second: {e:#?}",
                     );
                     sleep(Duration::from_secs(1));
                 }
@@ -492,8 +514,8 @@ impl Primary {
             tx_headers,
             tx_narwhal_round_updates,
             rx_committed_own_headers,
-            node_metrics,
-            leader_schedule,
+            node_metrics.clone(),
+            leader_schedule.clone(),
         );
 
         let mut handles = vec![
@@ -511,11 +533,17 @@ impl Primary {
             authority.id(),
             committee,
             rx_committed_certificates,
+            rx_randomness_partial_signatures,
             tx_shutdown.subscribe(),
+            rx_narwhal_round_updates,
             Some(tx_committed_own_headers),
+            randomness_vss_key_lock.clone(),
             tx_system_messages,
             RandomnessPrivateKey::from(randomness_private_key),
+            leader_schedule,
             network,
+            randomness_store,
+            node_metrics,
         );
         handles.push(state_handler_handle);
 
@@ -563,12 +591,41 @@ struct PrimaryReceiverHandler {
     vote_digest_store: VoteDigestStore,
     /// Get a signal when the round changes.
     rx_narwhal_round_updates: watch::Receiver<Round>,
+    /// Stores the randomness VSS public key when available.
+    randomness_vss_key_lock: Arc<OnceLock<PublicVssKey>>,
+    /// Sends randomness partial signatures to the state handler.
+    tx_randomness_partial_signatures: Sender<(
+        AuthorityIdentifier,
+        RandomnessRound,
+        Vec<RandomnessPartialSignature>,
+    )>,
     /// Known parent digests that are being fetched from header proposers.
     /// Values are where the digests are first known from.
     /// TODO: consider limiting maximum number of digests from one authority, allow timeout
     /// and retries from other authorities.
     parent_digests: Arc<Mutex<BTreeMap<(Round, CertificateDigest), AuthorityIdentifier>>>,
     metrics: Arc<PrimaryMetrics>,
+}
+
+fn authority_for_request<'a, T>(
+    committee: &'a Committee,
+    request: &anemo::Request<T>,
+) -> DagResult<&'a Authority> {
+    let peer_id = request
+        .peer_id()
+        .ok_or_else(|| DagError::NetworkError("Unable to access remote peer ID".to_owned()))?;
+    let peer_network_key = NetworkPublicKey::from_bytes(&peer_id.0).map_err(|e| {
+        DagError::NetworkError(format!(
+            "Unable to interpret remote peer ID {peer_id:?} as a NetworkPublicKey: {e:?}"
+        ))
+    })?;
+    committee
+        .authority_by_network_key(&peer_network_key)
+        .ok_or_else(|| {
+            DagError::NetworkError(format!(
+                "Unable to find authority with network key {peer_network_key:?}"
+            ))
+        })
 }
 
 #[allow(clippy::result_large_err)]
@@ -612,21 +669,7 @@ impl PrimaryReceiverHandler {
             .inc_by(num_parents as u64);
 
         // Vote request must come from the Header's author.
-        let peer_id = request
-            .peer_id()
-            .ok_or_else(|| DagError::NetworkError("Unable to access remote peer ID".to_owned()))?;
-        let peer_network_key = NetworkPublicKey::from_bytes(&peer_id.0).map_err(|e| {
-            DagError::NetworkError(format!(
-                "Unable to interpret remote peer ID {peer_id:?} as a NetworkPublicKey: {e:?}"
-            ))
-        })?;
-        let peer_authority = committee
-            .authority_by_network_key(&peer_network_key)
-            .ok_or_else(|| {
-                DagError::NetworkError(format!(
-                    "Unable to find authority with network key {peer_network_key:?}"
-                ))
-            })?;
+        let peer_authority = authority_for_request(&self.committee, &request)?;
         ensure!(
             header.author() == peer_authority.id(),
             DagError::NetworkError(format!(
@@ -712,6 +755,42 @@ impl PrimaryReceiverHandler {
             stake >= committee.quorum_threshold(),
             DagError::HeaderRequiresQuorum(header.digest())
         );
+
+        // Verify any system messages present in the header.
+        type DkgG = <ThresholdBls12381MinSig as ThresholdBls>::Public;
+        for m in header.system_messages().iter() {
+            match m {
+                SystemMessage::DkgMessage(bytes) => {
+                    let msg: fastcrypto_tbls::dkg::Message<DkgG, DkgG> =
+                        bcs::from_bytes(bytes).map_err(|_| DagError::InvalidSystemMessage)?;
+                    ensure!(
+                        msg.sender == header.author().0,
+                        DagError::InvalidSystemMessage
+                    );
+                }
+                SystemMessage::DkgConfirmation(bytes) => {
+                    let conf: fastcrypto_tbls::dkg::Confirmation<DkgG> =
+                        bcs::from_bytes(bytes).map_err(|_| DagError::InvalidSystemMessage)?;
+                    ensure!(
+                        conf.sender == header.author().0,
+                        DagError::InvalidSystemMessage
+                    );
+                }
+                SystemMessage::RandomnessSignature(round, bytes) => {
+                    let sig: RandomnessSignature =
+                        bcs::from_bytes(bytes).map_err(|_| DagError::InvalidSystemMessage)?;
+                    fastcrypto_tbls::types::ThresholdBls12381MinSig::verify(
+                        self.randomness_vss_key_lock
+                            .get()
+                            .ok_or(DagError::RandomnessUnavailable)?
+                            .c0(),
+                        &round.signature_message(),
+                        &sig,
+                    )
+                    .map_err(|_| DagError::InvalidRandomnessSignature)?;
+                }
+            }
+        }
 
         // Synchronize all batches referenced in the header.
         self.synchronizer
@@ -922,6 +1001,27 @@ impl PrimaryToPrimary for PrimaryReceiverHandler {
         }
     }
 
+    async fn send_randomness_partial_signatures(
+        &self,
+        request: anemo::Request<SendRandomnessPartialSignaturesRequest>,
+    ) -> Result<anemo::Response<()>, anemo::rpc::Status> {
+        let _scope = monitored_scope("PrimaryReceiverHandler::send_randomness_partial_signatures");
+        let peer_authority = authority_for_request(&self.committee, &request).map_err(|e| {
+            anemo::rpc::Status::new_with_message(
+                anemo::types::response::StatusCode::Unknown,
+                format!("{e:?}"),
+            )
+        })?;
+        let request = request.into_body();
+        // This is best-effort, eat any errors in processing.
+        // TODO: consider returning an error to the sender on signature verification failure.
+        let _ = self
+            .tx_randomness_partial_signatures
+            .send((peer_authority.id(), request.round, request.sigs))
+            .await;
+        Ok(anemo::Response::new(()))
+    }
+
     async fn request_vote(
         &self,
         request: anemo::Request<RequestVoteRequest>,
@@ -936,6 +1036,7 @@ impl PrimaryToPrimary for PrimaryReceiverHandler {
                         DagError::InvalidSignature
                         | DagError::InvalidEpoch { .. }
                         | DagError::InvalidHeaderDigest
+                        | DagError::InvalidRandomnessSignature
                         | DagError::HeaderHasBadWorkerIds(_)
                         | DagError::HeaderHasInvalidParentRoundNumbers(_)
                         | DagError::HeaderHasDuplicateParentAuthorities(_)

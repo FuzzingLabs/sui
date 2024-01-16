@@ -1,34 +1,35 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::BTreeMap;
-use std::future;
-use std::sync::Arc;
-use std::time::Instant;
-
 use fastcrypto::encoding::Base64;
 use futures::stream;
 use futures::StreamExt;
 use futures_core::Stream;
 use jsonrpsee::core::client::Subscription;
+use std::collections::BTreeMap;
+use std::future;
+use std::sync::Arc;
+use std::time::Instant;
 
 use crate::error::{Error, SuiRpcResult};
 use crate::RpcClient;
-use sui_json_rpc::api::GovernanceReadApiClient;
-use sui_json_rpc::api::{
-    CoinReadApiClient, IndexerApiClient, MoveUtilsClient, ReadApiClient, WriteApiClient,
+use sui_json_rpc_api::{
+    CoinReadApiClient, GovernanceReadApiClient, IndexerApiClient, MoveUtilsClient, ReadApiClient,
+    WriteApiClient,
 };
 use sui_json_rpc_types::{
     Balance, Checkpoint, CheckpointId, Coin, CoinPage, DelegatedStake, DevInspectResults,
     DryRunTransactionBlockResponse, DynamicFieldPage, EventFilter, EventPage, ObjectsPage,
     ProtocolConfigResponse, SuiCoinMetadata, SuiCommittee, SuiEvent, SuiGetPastObjectRequest,
     SuiMoveNormalizedModule, SuiObjectDataOptions, SuiObjectResponse, SuiObjectResponseQuery,
-    SuiPastObjectResponse, SuiTransactionBlockResponse, SuiTransactionBlockResponseOptions,
-    SuiTransactionBlockResponseQuery, TransactionBlocksPage,
+    SuiPastObjectResponse, SuiTransactionBlockEffects, SuiTransactionBlockResponse,
+    SuiTransactionBlockResponseOptions, SuiTransactionBlockResponseQuery, TransactionBlocksPage,
+    TransactionFilter,
 };
 use sui_json_rpc_types::{CheckpointPage, SuiLoadedChildObjectsResponse};
 use sui_types::balance::Supply;
 use sui_types::base_types::{ObjectID, SequenceNumber, SuiAddress, TransactionDigest};
+use sui_types::dynamic_field::DynamicFieldName;
 use sui_types::event::EventID;
 use sui_types::messages_checkpoint::CheckpointSequenceNumber;
 use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
@@ -38,7 +39,7 @@ use sui_types::transaction::{Transaction, TransactionData, TransactionKind};
 
 const WAIT_FOR_LOCAL_EXECUTION_RETRY_COUNT: u8 = 3;
 
-/// The main read API structure with functions for retriving data about different objects and transactions
+/// The main read API structure with functions for retrieving data about different objects and transactions
 #[derive(Debug)]
 pub struct ReadApi {
     api: Arc<RpcClient>,
@@ -135,6 +136,19 @@ impl ReadApi {
             .api
             .http
             .get_dynamic_fields(object_id, cursor, limit)
+            .await?)
+    }
+
+    /// Return the dynamic field object information for a specified object.
+    pub async fn get_dynamic_field_object(
+        &self,
+        parent_object_id: ObjectID,
+        name: DynamicFieldName,
+    ) -> SuiRpcResult<SuiObjectResponse> {
+        Ok(self
+            .api
+            .http
+            .get_dynamic_field_object(parent_object_id, name)
             .await?)
     }
 
@@ -556,6 +570,23 @@ impl ReadApi {
                 }
             },
         )
+    }
+
+    /// Subscribe to a stream of transactions.
+    ///
+    /// This is only available through WebSockets.
+    pub async fn subscribe_transaction(
+        &self,
+        filter: TransactionFilter,
+    ) -> SuiRpcResult<impl Stream<Item = SuiRpcResult<SuiTransactionBlockEffects>>> {
+        let Some(c) = &self.api.ws else {
+            return Err(Error::Subscription(
+                "Subscription only supported by WebSocket client.".to_string(),
+            ));
+        };
+        let subscription: Subscription<SuiTransactionBlockEffects> =
+            c.subscribe_transaction(filter).await?;
+        Ok(subscription.map(|item| Ok(item?)))
     }
 
     /// Return a map consisting of the move package name and the normalized module, or an error upon failure.
@@ -1141,7 +1172,7 @@ impl GovernanceApi {
     /// use sui_sdk::SuiClientBuilder;
     ///
     /// #[tokio::main]
-    /// async fn main() -> Result<(), anyhow::Error> {     
+    /// async fn main() -> Result<(), anyhow::Error> {
     ///     let sui = SuiClientBuilder::default().build_localnet().await?;
     ///     let committee_info = sui
     ///         .governance_api()

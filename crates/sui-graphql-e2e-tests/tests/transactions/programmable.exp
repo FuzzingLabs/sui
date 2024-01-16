@@ -1,0 +1,1141 @@
+processed 21 tasks
+
+init:
+A: object(0,0)
+
+task 1 'publish'. lines 6-19:
+created: object(1,0), object(1,1)
+mutated: object(0,0)
+gas summary: computation_cost: 1000000, storage_cost: 6315600,  storage_rebate: 0, non_refundable_storage_fee: 0
+
+task 2 'create-checkpoint'. lines 21-21:
+Checkpoint created: 1
+
+task 3 'run-graphql'. lines 23-202:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "3TPTLFizrqd44dPJRvacsrFA8pjUixUVkjjBJWB75taB",
+          "sender": {
+            "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+          },
+          "signatures": [
+            "ALBzmwiO+blmZMM+1kvAc8rAy5dwEhlavVbyDqntmVRyUaonnHaAOfpaYHFjTn6m3/9Isym/mIZnGxFs5XYTuQd/UUY663bYjcm3XmNyULIgxJz1t5Z9vxfB+fp8WUoJKA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+            },
+            "gasPayment": {
+              "nodes": [
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+                }
+              ]
+            },
+            "gasPrice": "1000",
+            "gasBudget": "5000000000"
+          },
+          "kind": {
+            "__typename": "ProgrammableTransactionBlock",
+            "inputs": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "/MyaQhu7E8GmahqpjwrXUCnt6UhXd5xpFbRPlAaLkh4="
+                  }
+                }
+              ]
+            },
+            "transactions": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "PublishTransaction",
+                    "modules": [
+                      "oRzrCwYAAAAIAQAGAgYMAxIKBRwRBy0wCF1ACp0BCQymAQ8ABAEGAQcAAAwAAQIEAAIBAgAABQABAAEFAwQAAgoDBwgCAQgAAAEHCAIBCAEDRm9vCVR4Q29udGV4dANVSUQCaWQBbQNuZXcGb2JqZWN0CnR4X2NvbnRleHQCeHMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAICAwgBCAoDAAEAAAIFCwERAQsAEgACAA=="
+                    ],
+                    "dependencies": [
+                      "0x0000000000000000000000000000000000000000000000000000000000000001",
+                      "0x0000000000000000000000000000000000000000000000000000000000000002"
+                    ]
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "__typename": "TransferObjectsTransaction",
+                    "inputs": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 0,
+                        "ix": null
+                      }
+                    ],
+                    "address": {
+                      "__typename": "Input",
+                      "ix": 0
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 2,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "7aTiqdWUaGyGVGkc3AZWA2bByrAooSMVFhZSBvb82GQV"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": [
+                {
+                  "owner": {
+                    "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+                  },
+                  "amount": "-7315600",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                }
+              ]
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1",
+                    "digest": "BsKj6FtBEtqEMC11mEgibFAkUrqTNdT3X36s7canJWRd"
+                  }
+                },
+                {
+                  "address": "0x14043fb88ed2857ee366fee3fd2155eb4fe5569e9dab14c48229b89151f1a0a9",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x14043fb88ed2857ee366fee3fd2155eb4fe5569e9dab14c48229b89151f1a0a9",
+                    "digest": "Ex7H23fectwo59agH3BtGX77gM9rtQbJYm9nUVJGThRV"
+                  }
+                },
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                    "digest": "7spCVYJhv8f3NmAat9jXCJRu6traV6aBCBhzK3FSUE8"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": {
+                "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+              },
+              "gasSummary": {
+                "computationCost": "1000000",
+                "storageCost": "6315600",
+                "storageRebate": "0",
+                "nonRefundableStorageFee": "0"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:00Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 1
+            },
+            "transactionBlock": {
+              "digest": "3TPTLFizrqd44dPJRvacsrFA8pjUixUVkjjBJWB75taB"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 4 'upgrade'. lines 204-222:
+created: object(4,0)
+mutated: object(0,0), object(1,1)
+gas summary: computation_cost: 1000000, storage_cost: 6589200,  storage_rebate: 2595780, non_refundable_storage_fee: 26220
+
+task 5 'create-checkpoint'. lines 224-224:
+Checkpoint created: 2
+
+task 6 'run-graphql'. lines 226-405:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "2hvmdtLN3X3RJd6djUDWq3tiVhSwk9WK7WVbZQkBpnhC",
+          "sender": {
+            "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+          },
+          "signatures": [
+            "AGuEK+SoMwu3OPZt9ul+J3TB3YwG4M4SSUzzn2rh1Yjr3fKbgrWg7yrD3lneZS/vsje9SnWbRbm8RHYl+AplegV/UUY663bYjcm3XmNyULIgxJz1t5Z9vxfB+fp8WUoJKA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+            },
+            "gasPayment": {
+              "nodes": [
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+                }
+              ]
+            },
+            "gasPrice": "1000",
+            "gasBudget": "5000000000"
+          },
+          "kind": {
+            "__typename": "ProgrammableTransactionBlock",
+            "inputs": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "OwnedOrImmutable",
+                    "address": "0x14043fb88ed2857ee366fee3fd2155eb4fe5569e9dab14c48229b89151f1a0a9",
+                    "version": 2,
+                    "digest": "Ex7H23fectwo59agH3BtGX77gM9rtQbJYm9nUVJGThRV",
+                    "object": null
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "AA=="
+                  }
+                },
+                {
+                  "cursor": "Mg",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "IKtSxFg0BLyRn8vrtIRqeqpsihVPvPFxPFBg5s0K+UqS"
+                  }
+                }
+              ]
+            },
+            "transactions": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "MoveCallTransaction",
+                    "package": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "module": "package",
+                    "functionName": "authorize_upgrade",
+                    "typeArguments": [],
+                    "arguments": [
+                      {
+                        "__typename": "Input",
+                        "ix": 0
+                      },
+                      {
+                        "__typename": "Input",
+                        "ix": 1
+                      },
+                      {
+                        "__typename": "Input",
+                        "ix": 2
+                      }
+                    ],
+                    "function": {
+                      "isEntry": false,
+                      "typeParameters": [],
+                      "parameters": [
+                        {
+                          "repr": "&mut 0x0000000000000000000000000000000000000000000000000000000000000002::package::UpgradeCap"
+                        },
+                        {
+                          "repr": "u8"
+                        },
+                        {
+                          "repr": "vector<u8>"
+                        }
+                      ],
+                      "return": [
+                        {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::package::UpgradeTicket"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "__typename": "UpgradeTransaction",
+                    "modules": [
+                      "oRzrCwYAAAAIAQAGAgYMAxIUBSYRBzc8CHNACrMBCQy8AR0ABgEIAQkAAAwAAQIEAAIBAgAABwABAAADAQIAAQQEAgABBwMEAAIKAwcIAgEIAAABBwgCAQgBA0ZvbwlUeENvbnRleHQDVUlEBGJ1cm4GZGVsZXRlAmlkAW0DbmV3Bm9iamVjdAp0eF9jb250ZXh0AnhzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgACAgUIAQoKAwABAAACBQsBEQMLABIAAgEBAAACBQsAEwABEQICAA=="
+                    ],
+                    "dependencies": [
+                      "0x0000000000000000000000000000000000000000000000000000000000000001",
+                      "0x0000000000000000000000000000000000000000000000000000000000000002"
+                    ],
+                    "currentPackage": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1",
+                    "upgradeTicket": {
+                      "__typename": "Result",
+                      "cmd": 0,
+                      "ix": null
+                    }
+                  }
+                },
+                {
+                  "cursor": "Mg",
+                  "node": {
+                    "__typename": "MoveCallTransaction",
+                    "package": "0x0000000000000000000000000000000000000000000000000000000000000002",
+                    "module": "package",
+                    "functionName": "commit_upgrade",
+                    "typeArguments": [],
+                    "arguments": [
+                      {
+                        "__typename": "Input",
+                        "ix": 0
+                      },
+                      {
+                        "__typename": "Result",
+                        "cmd": 1,
+                        "ix": null
+                      }
+                    ],
+                    "function": {
+                      "isEntry": false,
+                      "typeParameters": [],
+                      "parameters": [
+                        {
+                          "repr": "&mut 0x0000000000000000000000000000000000000000000000000000000000000002::package::UpgradeCap"
+                        },
+                        {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::package::UpgradeReceipt"
+                        }
+                      ],
+                      "return": []
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 3,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "3TPTLFizrqd44dPJRvacsrFA8pjUixUVkjjBJWB75taB"
+                },
+                {
+                  "digest": "7aTiqdWUaGyGVGkc3AZWA2bByrAooSMVFhZSBvb82GQV"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": [
+                {
+                  "owner": {
+                    "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+                  },
+                  "amount": "-4993420",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                }
+              ]
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x14043fb88ed2857ee366fee3fd2155eb4fe5569e9dab14c48229b89151f1a0a9",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x14043fb88ed2857ee366fee3fd2155eb4fe5569e9dab14c48229b89151f1a0a9",
+                    "digest": "9KFgSkwBQRPeLKqB6VdK3aAsUKJMsWgiS74kBiFNzrDY"
+                  }
+                },
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                    "digest": "4qbKuSLVdWdaLq2PvLrtmrkCEeXsDHqgXUDBkSgZ977M"
+                  }
+                },
+                {
+                  "address": "0xffbf0f30cd5f5af7150add6a7acde3a43f13cf4c8b5646917367561350e1799b",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xffbf0f30cd5f5af7150add6a7acde3a43f13cf4c8b5646917367561350e1799b",
+                    "digest": "Bh5V1tqDskS4wsjZVo5UJS5QCsC39QwW6tZdQy1inhzV"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": {
+                "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+              },
+              "gasSummary": {
+                "computationCost": "1000000",
+                "storageCost": "6589200",
+                "storageRebate": "2595780",
+                "nonRefundableStorageFee": "26220"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:00Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 2
+            },
+            "transactionBlock": {
+              "digest": "2hvmdtLN3X3RJd6djUDWq3tiVhSwk9WK7WVbZQkBpnhC"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 7 'programmable'. lines 407-410:
+created: object(7,0)
+mutated: object(0,0)
+gas summary: computation_cost: 1000000, storage_cost: 2280000,  storage_rebate: 978120, non_refundable_storage_fee: 9880
+
+task 8 'programmable'. lines 412-421:
+created: object(8,0), object(8,1)
+mutated: object(0,0)
+gas summary: computation_cost: 1000000, storage_cost: 3328800,  storage_rebate: 978120, non_refundable_storage_fee: 9880
+
+task 9 'create-checkpoint'. lines 423-423:
+Checkpoint created: 3
+
+task 10 'run-graphql'. lines 425-613:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "EMtUhaijafinhT2Z8xDB4uv8Q1ewHFqzPAHkKT8VaphU",
+          "sender": {
+            "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+          },
+          "signatures": [
+            "AElKsCmxMjmA6nQGRUnhCzXnVQUIaj582BIaPvWZgIeItSMC5saVoAuvWTP5SrepJIzMN9k86p/OVXAoel/lRAV/UUY663bYjcm3XmNyULIgxJz1t5Z9vxfB+fp8WUoJKA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+            },
+            "gasPayment": {
+              "nodes": [
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+                }
+              ]
+            },
+            "gasPrice": "1000",
+            "gasBudget": "5000000000"
+          },
+          "kind": {
+            "__typename": "ProgrammableTransactionBlock",
+            "inputs": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "KgAAAAAAAAA="
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "KwAAAAAAAAA="
+                  }
+                },
+                {
+                  "cursor": "Mg",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "6AMAAAAAAAA="
+                  }
+                },
+                {
+                  "cursor": "Mw",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "/MyaQhu7E8GmahqpjwrXUCnt6UhXd5xpFbRPlAaLkh4="
+                  }
+                }
+              ]
+            },
+            "transactions": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "MakeMoveVecTransaction",
+                    "type": {
+                      "repr": "u64"
+                    },
+                    "elements": [
+                      {
+                        "__typename": "Input",
+                        "ix": 0
+                      },
+                      {
+                        "__typename": "Input",
+                        "ix": 1
+                      }
+                    ]
+                  }
+                },
+                {
+                  "cursor": "MQ",
+                  "node": {
+                    "__typename": "MakeMoveVecTransaction",
+                    "type": {
+                      "repr": "u64"
+                    },
+                    "elements": []
+                  }
+                },
+                {
+                  "cursor": "Mg",
+                  "node": {
+                    "__typename": "SplitCoinsTransaction",
+                    "coin": {
+                      "__typename": "GasCoin"
+                    },
+                    "amounts": [
+                      {
+                        "__typename": "Input",
+                        "ix": 2
+                      },
+                      {
+                        "__typename": "Input",
+                        "ix": 2
+                      }
+                    ]
+                  }
+                },
+                {
+                  "cursor": "Mw",
+                  "node": {
+                    "__typename": "MoveCallTransaction",
+                    "package": "0xffbf0f30cd5f5af7150add6a7acde3a43f13cf4c8b5646917367561350e1799b",
+                    "module": "m",
+                    "functionName": "new",
+                    "typeArguments": [],
+                    "arguments": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 0,
+                        "ix": null
+                      }
+                    ],
+                    "function": {
+                      "isEntry": false,
+                      "typeParameters": [],
+                      "parameters": [
+                        {
+                          "repr": "vector<u64>"
+                        },
+                        {
+                          "repr": "&mut 0x0000000000000000000000000000000000000000000000000000000000000002::tx_context::TxContext"
+                        }
+                      ],
+                      "return": [
+                        {
+                          "repr": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1::m::Foo"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "cursor": "NA",
+                  "node": {
+                    "__typename": "TransferObjectsTransaction",
+                    "inputs": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 3,
+                        "ix": null
+                      }
+                    ],
+                    "address": {
+                      "__typename": "Input",
+                      "ix": 3
+                    }
+                  }
+                },
+                {
+                  "cursor": "NQ",
+                  "node": {
+                    "__typename": "MoveCallTransaction",
+                    "package": "0xffbf0f30cd5f5af7150add6a7acde3a43f13cf4c8b5646917367561350e1799b",
+                    "module": "m",
+                    "functionName": "new",
+                    "typeArguments": [],
+                    "arguments": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 1,
+                        "ix": null
+                      }
+                    ],
+                    "function": {
+                      "isEntry": false,
+                      "typeParameters": [],
+                      "parameters": [
+                        {
+                          "repr": "vector<u64>"
+                        },
+                        {
+                          "repr": "&mut 0x0000000000000000000000000000000000000000000000000000000000000002::tx_context::TxContext"
+                        }
+                      ],
+                      "return": [
+                        {
+                          "repr": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1::m::Foo"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "cursor": "Ng",
+                  "node": {
+                    "__typename": "MoveCallTransaction",
+                    "package": "0xffbf0f30cd5f5af7150add6a7acde3a43f13cf4c8b5646917367561350e1799b",
+                    "module": "m",
+                    "functionName": "burn",
+                    "typeArguments": [],
+                    "arguments": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 5,
+                        "ix": null
+                      }
+                    ],
+                    "function": {
+                      "isEntry": false,
+                      "typeParameters": [],
+                      "parameters": [
+                        {
+                          "repr": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1::m::Foo"
+                        }
+                      ],
+                      "return": []
+                    }
+                  }
+                },
+                {
+                  "cursor": "Nw",
+                  "node": {
+                    "__typename": "MergeCoinsTransaction",
+                    "coin": {
+                      "__typename": "Result",
+                      "cmd": 2,
+                      "ix": 0
+                    },
+                    "coins": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 2,
+                        "ix": 1
+                      }
+                    ]
+                  }
+                },
+                {
+                  "cursor": "OA",
+                  "node": {
+                    "__typename": "TransferObjectsTransaction",
+                    "inputs": [
+                      {
+                        "__typename": "Result",
+                        "cmd": 2,
+                        "ix": 0
+                      }
+                    ],
+                    "address": {
+                      "__typename": "Input",
+                      "ix": 3
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "SUCCESS",
+            "errors": null,
+            "lamportVersion": 5,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "2hvmdtLN3X3RJd6djUDWq3tiVhSwk9WK7WVbZQkBpnhC"
+                },
+                {
+                  "digest": "57CaQfmy193uJEDo1371ApRPvZNzztFvxPiyqY759gQ3"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": [
+                {
+                  "owner": {
+                    "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+                  },
+                  "amount": "-3350680",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                }
+              ]
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x4a9a70d60738a01429e7ac8580c492ae11ad3f26838d21f9e8d6537acae65b91",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x4a9a70d60738a01429e7ac8580c492ae11ad3f26838d21f9e8d6537acae65b91",
+                    "digest": "Hy74vXDZGJB4EyinwchxcT6J22o8Xn3PTaqizrArifEf",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>"
+                        },
+                        "json": {
+                          "id": "0x4a9a70d60738a01429e7ac8580c492ae11ad3f26838d21f9e8d6537acae65b91",
+                          "balance": {
+                            "value": "2000"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                    "digest": "FEijMUej8m2Q74dY9GmnVQdwRpD2jbY9suAxQE2K9YdX",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI>"
+                        },
+                        "json": {
+                          "id": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                          "balance": {
+                            "value": "299999982036420"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "address": "0xd19b74e73cb905c0bf18929904645c765812f75fcc628b3d2c126803af692aaf",
+                  "idCreated": true,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0xd19b74e73cb905c0bf18929904645c765812f75fcc628b3d2c126803af692aaf",
+                    "digest": "DQ5xnUWmtKeZ2MchbvW63SknU1FRvjXzLWD1E4FHBDva",
+                    "asMoveObject": {
+                      "contents": {
+                        "type": {
+                          "repr": "0x0dc6221c3bb4d12091bb422710fbe4983f2ff1d1961c779d01f4785f1e21dba1::m::Foo"
+                        },
+                        "json": {
+                          "id": "0xd19b74e73cb905c0bf18929904645c765812f75fcc628b3d2c126803af692aaf",
+                          "xs": [
+                            "42",
+                            "43"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": {
+                "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+              },
+              "gasSummary": {
+                "computationCost": "1000000",
+                "storageCost": "3328800",
+                "storageRebate": "978120",
+                "nonRefundableStorageFee": "9880"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:00Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 3
+            },
+            "transactionBlock": {
+              "digest": "EMtUhaijafinhT2Z8xDB4uv8Q1ewHFqzPAHkKT8VaphU"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 11 'programmable'. lines 615-616:
+Error: Transaction Effects Status: Unused result without the drop ability. Command result 0, return value 0
+Execution Error: ExecutionError: ExecutionError { inner: ExecutionErrorInner { kind: UnusedValueWithoutDrop { result_idx: 0, secondary_idx: 0 }, source: None, command: None } }
+
+task 12 'create-checkpoint'. lines 618-618:
+Checkpoint created: 4
+
+task 13 'run-graphql'. lines 620-799:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "nodes": [
+        {
+          "digest": "EvY4PHZwY7gXpJk8rS3LKAD9rwbAZHae1rUexgX3fgxZ",
+          "sender": {
+            "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+          },
+          "signatures": [
+            "ALTqZmENHt1V1sYnnIwRwVwh8diFMNtOAQgAV+P9pVIRzoTzm0Osov8B2PRg3chHWUBx580HYaIac0tXpINR6Qt/UUY663bYjcm3XmNyULIgxJz1t5Z9vxfB+fp8WUoJKA=="
+          ],
+          "gasInput": {
+            "gasSponsor": {
+              "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+            },
+            "gasPayment": {
+              "nodes": [
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+                }
+              ]
+            },
+            "gasPrice": "1000",
+            "gasBudget": "5000000000"
+          },
+          "kind": {
+            "__typename": "ProgrammableTransactionBlock",
+            "inputs": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "Pure",
+                    "bytes": "6AMAAAAAAAA="
+                  }
+                }
+              ]
+            },
+            "transactions": {
+              "edges": [
+                {
+                  "cursor": "MA",
+                  "node": {
+                    "__typename": "SplitCoinsTransaction",
+                    "coin": {
+                      "__typename": "GasCoin"
+                    },
+                    "amounts": [
+                      {
+                        "__typename": "Input",
+                        "ix": 0
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "effects": {
+            "status": "FAILURE",
+            "errors": "Unused result without the drop ability. Command result 0, return value 0",
+            "lamportVersion": 6,
+            "dependencies": {
+              "nodes": [
+                {
+                  "digest": "EMtUhaijafinhT2Z8xDB4uv8Q1ewHFqzPAHkKT8VaphU"
+                }
+              ]
+            },
+            "balanceChanges": {
+              "nodes": [
+                {
+                  "owner": {
+                    "address": "0xfccc9a421bbb13c1a66a1aa98f0ad75029ede94857779c6915b44f94068b921e"
+                  },
+                  "amount": "-1009880",
+                  "coinType": {
+                    "repr": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                  }
+                }
+              ]
+            },
+            "objectChanges": {
+              "nodes": [
+                {
+                  "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                  "idCreated": false,
+                  "idDeleted": false,
+                  "outputState": {
+                    "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b",
+                    "digest": "G8FfEqVVqu3vRR1WxSwXkaP4XLqrwuEt7Qot2DEpZe9q"
+                  }
+                }
+              ]
+            },
+            "gasEffects": {
+              "gasObject": {
+                "address": "0x8505f08fef00f4d24b84052c8da636814de039c600b7f3030b9a84dfe956bc5b"
+              },
+              "gasSummary": {
+                "computationCost": "1000000",
+                "storageCost": "988000",
+                "storageRebate": "978120",
+                "nonRefundableStorageFee": "9880"
+              }
+            },
+            "timestamp": "1970-01-01T00:00:00Z",
+            "epoch": {
+              "epochId": 0
+            },
+            "checkpoint": {
+              "sequenceNumber": 4
+            },
+            "transactionBlock": {
+              "digest": "EvY4PHZwY7gXpJk8rS3LKAD9rwbAZHae1rUexgX3fgxZ"
+            }
+          },
+          "expiration": null
+        }
+      ]
+    }
+  }
+}
+
+task 14 'run-graphql'. lines 801-811:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "MA",
+          "node": {
+            "kind": {
+              "__typename": "GenesisTransaction"
+            }
+          }
+        },
+        {
+          "cursor": "MQ",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "Mg",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "Mw",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "NA",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "NQ",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+task 15 'run-graphql'. lines 813-823:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "MA",
+          "node": {
+            "kind": {
+              "__typename": "GenesisTransaction"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+task 16 'run-graphql'. lines 825-835:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "MQ",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "Mg",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "Mw",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "NA",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        },
+        {
+          "cursor": "NQ",
+          "node": {
+            "kind": {
+              "__typename": "ProgrammableTransactionBlock"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+task 17 'run-graphql'. lines 837-844:
+Response: {
+  "data": {
+    "address": {
+      "transactionBlocks": {
+        "nodes": []
+      }
+    }
+  }
+}
+
+task 18 'run-graphql'. lines 846-851:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "Mg"
+        },
+        {
+          "cursor": "Mw"
+        }
+      ]
+    }
+  }
+}
+
+task 19 'run-graphql'. lines 853-858:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "Mw"
+        },
+        {
+          "cursor": "NA"
+        }
+      ]
+    }
+  }
+}
+
+task 20 'run-graphql'. lines 860-870:
+Response: {
+  "data": {
+    "transactionBlocks": {
+      "edges": [
+        {
+          "cursor": "Mw"
+        }
+      ]
+    }
+  }
+}

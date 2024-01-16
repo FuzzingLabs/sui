@@ -29,8 +29,8 @@ pub(crate) enum FunctionalGroup {
     /// Transaction and Event subscriptions.
     Subscriptions,
 
-    /// Information about the system that changes from epoch to epoch (protocol config, committee,
-    /// reference gas price).
+    /// Aspects that affect the running of the system that are managed by the
+    /// validators either directly, or through system transactions.
     SystemState,
 }
 
@@ -69,40 +69,24 @@ fn functional_groups() -> &'static BTreeMap<(&'static str, &'static str), Functi
             (("Address", "balanceConnection"), G::Coins),
             (("Address", "coinConnection"), G::Coins),
             (("Address", "defaultNameServiceName"), G::NameService),
-            // (("Address", "nameServiceConnection"), G::NameService),
+            (("Address", "suinsRegistrations"), G::NameService),
             (("Checkpoint", "addressMetrics"), G::Analytics),
             (("Checkpoint", "networkTotalTransactions"), G::Analytics),
             (("Epoch", "protocolConfigs"), G::SystemState),
             (("Epoch", "referenceGasPrice"), G::SystemState),
             (("Epoch", "validatorSet"), G::SystemState),
-            (("SuiSystemStateSummary", "protocolConfigs"), G::SystemState),
-            (
-                ("SuiSystemStateSummary", "referenceGasPrice"),
-                G::SystemState,
-            ),
-            (("SuiSystemStateSummary", "safeMode"), G::SystemState),
-            (("SuiSystemStateSummary", "storageFund"), G::SystemState),
-            (
-                ("SuiSystemStateSummary", "systemParameters"),
-                G::SystemState,
-            ),
-            (
-                ("SuiSystemStateSummary", "systemStateVersion"),
-                G::SystemState,
-            ),
-            (("SuiSystemStateSummary", "validatorSet"), G::SystemState),
             (("Object", "balance"), G::Coins),
             (("Object", "balanceConnection"), G::Coins),
             (("Object", "coinConnection"), G::Coins),
             (("Object", "defaultNameServiceName"), G::NameService),
             (("Object", "dynamicField"), G::DynamicFields),
             (("Object", "dynamicFieldConnection"), G::DynamicFields),
-            // (("Object", "nameServiceConnection"), G::NameService),
+            (("Object", "suinsRegistrations"), G::NameService),
             (("Owner", "balance"), G::Coins),
             (("Owner", "balanceConnection"), G::Coins),
             (("Owner", "coinConnection"), G::Coins),
             (("Owner", "defaultNameServiceName"), G::NameService),
-            // (("Owner", "nameServiceConnection"), G::NameService),
+            (("Owner", "suinsRegistrations"), G::NameService),
             (("Query", "coinMetadata"), G::Coins),
             (("Query", "moveCallMetrics"), G::Analytics),
             (("Query", "networkMetrics"), G::Analytics),
@@ -110,6 +94,10 @@ fn functional_groups() -> &'static BTreeMap<(&'static str, &'static str), Functi
             (("Query", "resolveNameServiceAddress"), G::NameService),
             (("Subscription", "events"), G::Subscriptions),
             (("Subscription", "transactions"), G::Subscriptions),
+            (("SystemStateSummary", "safeMode"), G::SystemState),
+            (("SystemStateSummary", "storageFund"), G::SystemState),
+            (("SystemStateSummary", "systemParameters"), G::SystemState),
+            (("SystemStateSummary", "systemStateVersion"), G::SystemState),
         ])
     });
 
@@ -144,9 +132,6 @@ mod tests {
         let unimplemented = BTreeSet::from_iter([
             ("Checkpoint", "addressMetrics"),
             ("Epoch", "protocolConfig"),
-            ("Object", "dynamicField"),
-            ("Object", "dynamicFieldConnection"),
-            ("Query", "coinMetadata"),
             ("Query", "moveCallMetrics"),
             ("Query", "networkMetrics"),
             ("Subscription", "events"),

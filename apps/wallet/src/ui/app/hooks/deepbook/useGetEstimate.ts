@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import BigNumber from 'bignumber.js';
 
 const MAX_COINS_PER_REQUEST = 10;
+const ESTIMATE_RETRY_COUNT = 10;
 
 async function getCoinsByBalance({
 	coinType,
@@ -29,6 +30,7 @@ async function getCoinsByBalance({
 	let currentBalance = 0n;
 	let hasNextPage = true;
 	const coins = [];
+
 	const bigIntBalance = BigInt(new BigNumber(balance).integerValue(BigNumber.ROUND_UP).toString());
 
 	while (currentBalance < bigIntBalance && hasNextPage) {
@@ -223,6 +225,7 @@ export function useGetEstimate({
 	totalQuoteBalance,
 	baseConversionRate,
 	quoteConversionRate,
+	enabled,
 }: {
 	accountCapId: string;
 	signer: WalletSigner | null;
@@ -235,6 +238,7 @@ export function useGetEstimate({
 	totalQuoteBalance: string;
 	baseConversionRate: number;
 	quoteConversionRate: number;
+	enabled?: boolean;
 }) {
 	const walletFeeAddress = useDeepBookContext().walletFeeAddress;
 	const queryClient = useQueryClient();
@@ -312,11 +316,13 @@ export function useGetEstimate({
 			};
 		},
 		enabled:
+			enabled &&
 			!!baseBalance &&
 			baseBalance !== '0' &&
 			!!quoteBalance &&
 			quoteBalance !== '0' &&
 			!!signer &&
 			!!activeAddress,
+		retry: ESTIMATE_RETRY_COUNT,
 	});
 }

@@ -27,6 +27,10 @@ pub trait IndexerStoreV2 {
 
     async fn get_latest_tx_checkpoint_sequence_number(&self) -> Result<Option<u64>, IndexerError>;
 
+    async fn get_latest_object_snapshot_checkpoint_sequence_number(
+        &self,
+    ) -> Result<Option<u64>, IndexerError>;
+
     async fn get_object_read(
         &self,
         object_id: ObjectID,
@@ -37,6 +41,13 @@ pub trait IndexerStoreV2 {
         &self,
         object_changes: Vec<TransactionObjectChangesToCommit>,
     ) -> Result<(), IndexerError>;
+
+    async fn persist_object_history(
+        &self,
+        object_changes: Vec<TransactionObjectChangesToCommit>,
+    ) -> Result<(), IndexerError>;
+
+    async fn persist_object_snapshot(&self) -> Result<(), IndexerError>;
 
     async fn persist_checkpoints(
         &self,
@@ -58,7 +69,9 @@ pub trait IndexerStoreV2 {
 
     async fn persist_packages(&self, packages: Vec<IndexedPackage>) -> Result<(), IndexerError>;
 
-    async fn persist_epoch(&self, data: Vec<EpochToCommit>) -> Result<(), IndexerError>;
+    async fn persist_epoch(&self, epoch: EpochToCommit) -> Result<(), IndexerError>;
+
+    async fn advance_epoch(&self, epoch: EpochToCommit) -> Result<(), IndexerError>;
 
     async fn get_network_total_transactions_by_end_of_epoch(
         &self,

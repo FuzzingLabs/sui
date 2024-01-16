@@ -12,11 +12,12 @@ use move_binary_format::{
 };
 use move_core_types::{
     account_address::AccountAddress,
+    annotated_value as A,
     effects::{ChangeSet, Event},
     identifier::IdentStr,
     language_storage::{ModuleId, TypeTag},
     resolver::MoveResolver,
-    value::MoveTypeLayout,
+    runtime_value::MoveTypeLayout,
 };
 #[cfg(debug_assertions)]
 use move_vm_profiler::GasProfiler;
@@ -79,6 +80,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<SerializedReturnValues> {
         let bypass_declared_entry_check = false;
+        let mut coverage: Vec<u16> = vec![];
         self.runtime.execute_function(
             module,
             function_name,
@@ -88,6 +90,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             gas_meter,
             &mut self.native_extensions,
             bypass_declared_entry_check,
+            &mut coverage
         )
     }
 
@@ -99,6 +102,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         ty_args: Vec<Type>,
         args: Vec<impl Borrow<[u8]>>,
         gas_meter: &mut impl GasMeter,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         #[cfg(debug_assertions)]
         {
@@ -120,9 +124,12 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             gas_meter,
             &mut self.native_extensions,
             bypass_declared_entry_check,
+            coverage
         )
     }
 
+<<<<<<< HEAD:external-crates/move/crates/move-vm-runtime/src/session.rs
+=======
     /// Execute a transaction script.
     ///
     /// The Move VM MUST return a user error (in other words, an error that's not an invariant
@@ -146,6 +153,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         args: Vec<impl Borrow<[u8]>>,
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<SerializedReturnValues> {
+        let mut coverage: Vec<u16> = vec![];
         self.runtime.execute_script(
             script,
             ty_args,
@@ -153,9 +161,11 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             &mut self.data_cache,
             gas_meter,
             &mut self.native_extensions,
+            &mut coverage
         )
     }
 
+>>>>>>> 1f06a10062 (Coverage):external-crates/move-execution/v0/move-vm/runtime/src/session.rs
     /// Publish the given module.
     ///
     /// The Move VM MUST return a user error, i.e., an error that's not an invariant violation, if
@@ -236,19 +246,6 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         )
     }
 
-    /// Load a script and all of its types into cache
-    pub fn load_script(
-        &self,
-        script: impl Borrow<[u8]>,
-        ty_args: &[Type],
-    ) -> VMResult<LoadedFunctionInstantiation> {
-        let (_, instantiation) =
-            self.runtime
-                .loader()
-                .load_script(script.borrow(), ty_args, &self.data_cache)?;
-        Ok(instantiation)
-    }
-
     /// Load a module, a function, and all of its types into cache
     pub fn load_function(
         &self,
@@ -288,7 +285,10 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             .get_type_layout(type_tag, &self.data_cache)
     }
 
-    pub fn get_fully_annotated_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
+    pub fn get_fully_annotated_type_layout(
+        &self,
+        type_tag: &TypeTag,
+    ) -> VMResult<A::MoveTypeLayout> {
         self.runtime
             .loader()
             .get_fully_annotated_type_layout(type_tag, &self.data_cache)
@@ -301,7 +301,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
             .map_err(|e| e.finish(Location::Undefined))
     }
 
-    pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<MoveTypeLayout> {
+    pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<A::MoveTypeLayout> {
         self.runtime
             .loader()
             .type_to_fully_annotated_layout(ty)

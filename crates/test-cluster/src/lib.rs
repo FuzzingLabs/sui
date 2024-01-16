@@ -12,7 +12,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use sui_config::node::DBCheckpointConfig;
+use sui_config::node::{DBCheckpointConfig, OverloadThresholdConfig};
 use sui_config::{Config, SUI_CLIENT_CONFIG, SUI_NETWORK_CONFIG};
 use sui_config::{NodeConfig, PersistedConfig, SUI_KEYSTORE_FILENAME};
 use sui_core::authority_aggregator::AuthorityAggregator;
@@ -36,7 +36,9 @@ use sui_swarm_config::network_config_builder::{
 };
 use sui_swarm_config::node_config_builder::{FullnodeConfigBuilder, ValidatorConfigBuilder};
 use sui_test_transaction_builder::TestTransactionBuilder;
+use sui_types::base_types::ConciseableName;
 use sui_types::base_types::{AuthorityName, ObjectID, ObjectRef, SuiAddress};
+use sui_types::committee::CommitteeTrait;
 use sui_types::committee::{Committee, EpochId};
 use sui_types::crypto::KeypairTraits;
 use sui_types::crypto::SuiKeyPair;
@@ -223,6 +225,13 @@ impl TestCluster {
             .sui_node
             .with_async(|node| async { node.state().get_object(object_id).await.unwrap() })
             .await
+    }
+
+    pub async fn get_latest_object_ref(&self, object_id: &ObjectID) -> ObjectRef {
+        self.get_object_from_fullnode_store(object_id)
+            .await
+            .unwrap()
+            .compute_object_reference()
     }
 
     pub async fn get_object_or_tombstone_from_fullnode_store(
@@ -442,6 +451,20 @@ impl TestCluster {
             .await
     }
 
+    pub async fn test_transaction_builder_with_sender(
+        &self,
+        sender: SuiAddress,
+    ) -> TestTransactionBuilder {
+        let gas = self
+            .wallet
+            .get_one_gas_object_owned_by_address(sender)
+            .await
+            .unwrap()
+            .unwrap();
+        self.test_transaction_builder_with_gas_object(sender, gas)
+            .await
+    }
+
     pub async fn test_transaction_builder_with_gas_object(
         &self,
         sender: SuiAddress,
@@ -654,6 +677,8 @@ pub struct TestClusterBuilder {
     jwk_fetch_interval: Option<Duration>,
     config_dir: Option<PathBuf>,
     default_jwks: bool,
+    overload_threshold_config: Option<OverloadThresholdConfig>,
+    data_ingestion_dir: Option<PathBuf>,
 }
 
 impl TestClusterBuilder {
@@ -673,6 +698,8 @@ impl TestClusterBuilder {
             jwk_fetch_interval: None,
             config_dir: None,
             default_jwks: false,
+            overload_threshold_config: None,
+            data_ingestion_dir: None,
         }
     }
 
@@ -811,6 +838,17 @@ impl TestClusterBuilder {
         self
     }
 
+    pub fn with_overload_threshold_config(mut self, config: OverloadThresholdConfig) -> Self {
+        assert!(self.network_config.is_none());
+        self.overload_threshold_config = Some(config);
+        self
+    }
+
+    pub fn with_data_ingestion_dir(mut self, path: PathBuf) -> Self {
+        self.data_ingestion_dir = Some(path);
+        self
+    }
+
     pub async fn build(mut self) -> TestCluster {
         // All test clusters receive a continuous stream of random JWKs.
         // If we later use zklogin authenticated transactions in tests we will need to supply
@@ -901,6 +939,10 @@ impl TestClusterBuilder {
             builder = builder.with_network_config(network_config);
         }
 
+        if let Some(overload_threshold_config) = self.overload_threshold_config.take() {
+            builder = builder.with_overload_threshold_config(overload_threshold_config);
+        }
+
         if let Some(fullnode_rpc_port) = self.fullnode_rpc_port {
             builder = builder.with_fullnode_rpc_port(fullnode_rpc_port);
         }
@@ -916,6 +958,10 @@ impl TestClusterBuilder {
             builder = builder.dir(config_dir);
         }
 
+        if let Some(data_ingestion_dir) = self.data_ingestion_dir.take() {
+            builder = builder.with_data_ingestion_dir(data_ingestion_dir);
+        }
+
         let mut swarm = builder.build();
         swarm.launch().await?;
 
@@ -928,7 +974,7 @@ impl TestClusterBuilder {
         swarm.config().save(&network_path)?;
         let mut keystore = Keystore::from(FileBasedKeystore::new(&keystore_path)?);
         for key in &swarm.config().account_keys {
-            keystore.add_key(SuiKeyPair::Ed25519(key.copy()))?;
+            keystore.add_key(None, SuiKeyPair::Ed25519(key.copy()))?;
         }
 
         let active_address = keystore.addresses().first().cloned();

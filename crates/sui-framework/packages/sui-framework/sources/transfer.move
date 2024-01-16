@@ -5,7 +5,6 @@
 module sui::transfer {
 
     use sui::object::{Self, ID, UID};
-    use sui::prover;
 
     #[test_only]
     friend sui::test_scenario;
@@ -103,7 +102,22 @@ module sui::transfer {
     /// Given mutable (i.e., locked) access to the `parent` and a `Receiving` argument
     /// referencing an object of type `T` owned by `parent` use the `to_receive`
     /// argument to receive and return the referenced owned object of type `T`.
+    /// This function has custom rules performed by the Sui Move bytecode verifier that ensures
+    /// that `T` is an object defined in the module where `receive` is invoked. Use
+    /// `public_receive` to receivne an object with `store` outside of its module.
     public fun receive<T: key>(parent: &mut UID, to_receive: Receiving<T>): T {
+        let Receiving {
+            id,
+            version,
+        } = to_receive;
+        receive_impl(object::uid_to_address(parent), id, version)
+    }
+
+    /// Given mutable (i.e., locked) access to the `parent` and a `Receiving` argument
+    /// referencing an object of type `T` owned by `parent` use the `to_receive`
+    /// argument to receive and return the referenced owned object of type `T`.
+    /// The object must have `store` to be received outside of its defining module.
+    public fun public_receive<T: key + store>(parent: &mut UID, to_receive: Receiving<T>): T {
         let Receiving {
             id,
             version,
@@ -118,48 +132,9 @@ module sui::transfer {
 
     public(friend) native fun freeze_object_impl<T: key>(obj: T);
 
-    spec freeze_object_impl {
-        pragma opaque;
-        // aborts if shared object:
-        // - it's OK to freeze whether object is fresh or owned
-        // - immutable object cannot be passed by value
-        aborts_if [abstract] sui::prover::shared(obj);
-        modifies [abstract] global<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] exists<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] global<object::Ownership>(object::id(obj).bytes).status == prover::IMMUTABLE;
-    }
-
     public(friend) native fun share_object_impl<T: key>(obj: T);
-
-    spec share_object_impl {
-        pragma opaque;
-        aborts_if [abstract] sui::prover::owned(obj);
-        modifies [abstract] global<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] exists<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] global<object::Ownership>(object::id(obj).bytes).status == prover::SHARED;
-    }
-
 
     public(friend) native fun transfer_impl<T: key>(obj: T, recipient: address);
 
-    spec transfer_impl {
-        pragma opaque;
-        // aborts if shared object:
-        // - it's OK to transfer whether object is fresh or already owned
-        // - immutable object cannot be passed by value
-        aborts_if [abstract] sui::prover::shared(obj);
-        modifies [abstract] global<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] exists<object::Ownership>(object::id(obj).bytes);
-        ensures [abstract] global<object::Ownership>(object::id(obj).bytes).owner == recipient;
-        ensures [abstract] global<object::Ownership>(object::id(obj).bytes).status == prover::OWNED;
-    }
-
     native fun receive_impl<T: key>(parent: address, to_receive: object::ID, version: u64): T;
-
-    spec receive_impl {
-        pragma opaque;
-        // TODO: stub to be replaced by actual abort conditions if any
-        aborts_if [abstract] true;
-        // TODO: specify actual function behavior
-    }
 }
