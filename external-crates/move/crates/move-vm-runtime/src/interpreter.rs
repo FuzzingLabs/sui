@@ -110,6 +110,7 @@ impl Interpreter {
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         loader: &Loader,
+        coverage: &mut Vec<u16>,
     ) -> VMResult<Vec<Value>> {
         let mut interpreter = Interpreter {
             operand_stack: Stack::new(),
@@ -146,7 +147,7 @@ impl Interpreter {
             Ok(return_values.into_iter().collect())
         } else {
             interpreter.execute_main(
-                loader, data_store, gas_meter, extensions, function, ty_args, args,
+                loader, data_store, gas_meter, extensions, function, ty_args, args, coverage,
             )
         }
     }
@@ -166,6 +167,7 @@ impl Interpreter {
         function: Arc<Function>,
         ty_args: Vec<Type>,
         args: Vec<Value>,
+        coverage: &mut Vec<u16>,
     ) -> VMResult<Vec<Value>> {
         let mut locals = Locals::new(function.local_count());
         for (i, value) in args.into_iter().enumerate() {
@@ -189,6 +191,7 @@ impl Interpreter {
             let exit_code = current_frame //self
                 .execute_code(&resolver, &mut self, gas_meter)
                 .map_err(|err| self.maybe_core_dump(err, &current_frame))?;
+            coverage.append(&mut current_frame.coverage);
             match exit_code {
                 ExitCode::Return => {
                     let non_ref_vals = current_frame
@@ -292,6 +295,7 @@ impl Interpreter {
                         self.maybe_core_dump(err, &frame)
                     })?;
                     current_frame = frame;
+                    coverage.append(&mut current_frame.coverage);
                 }
             }
         }
@@ -336,6 +340,7 @@ impl Interpreter {
             locals,
             function,
             ty_args,
+            coverage: vec![],
         })
     }
 
@@ -780,6 +785,7 @@ struct Frame {
     locals: Locals,
     function: Arc<Function>,
     ty_args: Vec<Type>,
+    coverage: Vec<u16>
 }
 
 /// An `ExitCode` from `execute_code_unit`.
@@ -1293,6 +1299,7 @@ impl Frame {
                     resolver,
                     interpreter
                 );
+                self.coverage.push(self.pc);
 
                 fail_point!("move_vm::interpreter_loop", |_| {
                     Err(

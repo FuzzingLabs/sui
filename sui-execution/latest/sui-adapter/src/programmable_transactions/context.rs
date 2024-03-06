@@ -946,6 +946,7 @@ mod checked {
         ) -> VMResult<SerializedReturnValues> {
             let gas_status = self.gas_charger.move_gas_status_mut();
             let mut data_store = SuiDataStore::new(&self.linkage_view, &self.new_packages);
+            let mut coverage = Vec::new();
             self.vm.get_runtime().execute_function_bypass_visibility(
                 module,
                 function_name,
@@ -954,6 +955,7 @@ mod checked {
                 &mut data_store,
                 gas_status,
                 &mut self.native_extensions,
+                &mut coverage
             )
         }
 

@@ -315,6 +315,7 @@ impl VMRuntime {
         data_store: &mut impl DataStore,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         let arg_types = param_types
             .into_iter()
@@ -346,6 +347,7 @@ impl VMRuntime {
             gas_meter,
             extensions,
             &self.loader,
+            coverage
         )?;
 
         let serialized_return_values = self
@@ -386,6 +388,7 @@ impl VMRuntime {
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
         bypass_declared_entry_check: bool,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         use move_binary_format::{binary_views::BinaryIndexedView, file_format::SignatureIndex};
         fn check_is_entry(
@@ -437,6 +440,7 @@ impl VMRuntime {
             data_store,
             gas_meter,
             extensions,
+            coverage
         )
     }
 
@@ -485,6 +489,7 @@ impl VMRuntime {
         data_store: &mut impl DataStore,
         gas_meter: &mut impl GasMeter,
         extensions: &mut NativeContextExtensions,
+        coverage: &mut Vec<u16>
     ) -> VMResult<SerializedReturnValues> {
         move_vm_profiler::gas_profiler_feature_enabled! {
             use move_vm_profiler::GasProfiler;
@@ -506,6 +511,7 @@ impl VMRuntime {
             gas_meter,
             extensions,
             bypass_declared_entry_check,
+            coverage
         )
     }
 
